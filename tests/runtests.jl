@@ -2,7 +2,6 @@
 using LightGraphs
 dag = SimpleDiGraph(4)
 
-
 @model begin LogisticRegression
     @vertices {
         y::Vector{N}

@@ -35,6 +35,9 @@ macro model(model_expr)
     _model(model_expr)
 end
 
+### Use malloc or calloc, and then
+### finalizer(f, x )
+###
 function define_struct(g, d, l, parametric_types_to_parameters, parameters_to_parametric_types, model_name)
     struct_q = quote
         struct $(Symbol(model_name, :Model)){_L,_T,$([Symbol(:_V,i) for i ∈ eachindex(l)]...)}
@@ -53,7 +56,7 @@ function define_struct(g, d, l, parametric_types_to_parameters, parameters_to_pa
     #
     # parameters_to_parametric_types is a dictionary containing
     parameter_v_data_check = :() # first pass, identify type parameters
-    parameter_second_pass = :() # second pass, insert type parameters into model parameters
+    # parameter_second_pass = :() # second pass, insert type parameters into model parameters
     where_list = [Symbol(:_V, i) for i ∈ eachindex(l)]
     keywordargs = Expr(:parameters, )
     for (type_param, param_array) ∈ zip(l, parametric_types_to_parameters)
@@ -71,7 +74,7 @@ function define_struct(g, d, l, parametric_types_to_parameters, parameters_to_pa
             :(
             if isparameter($Vsym)
                 push!(parameters, $(i, l[i]) )
-                push!(parameter_types, $(get_prop(g, i, :default)))
+                push!(types_of_parameters, $(get_prop(g, i, :default)))
             else # it is a constant, now try to read parameteric type information.
                 push!(datapriors, $(i, l[i]) )
             end
@@ -81,7 +84,7 @@ function define_struct(g, d, l, parametric_types_to_parameters, parameters_to_pa
             :(
             if isparameter($Vsym)
                 push!(parameters, $(i, l[i]) )
-                push!(parameter_types, $(get_prop(g, i, :default)))
+                push!(types_of_parameters, $(get_prop(g, i, :default)))
             else # it is a constant, now try to read parameteric type information.
                 push!(datapriors, $(i, l[i]) )
                 parametric_type_dict[$(param_vec[1][2])] = $(Vsym).parameters[$(param_vec[1][1])]
@@ -92,7 +95,7 @@ function define_struct(g, d, l, parametric_types_to_parameters, parameters_to_pa
             :(
             if isparameter($Vsym)
                 push!(parameters, $(i, l[i]) )
-                push!(parameter_types, $(get_prop(g, i, :default)))
+                push!(types_of_parameters, $(get_prop(g, i, :default)))
             else # it is a constant, now try to read parameteric type information.
                 push!(datapriors, $(i, l[i]) )
                 parametric_type_dict[$(param_vec[1][2])] = $(Vsym).parameters[$(param_vec[1][1])]
@@ -102,27 +105,40 @@ function define_struct(g, d, l, parametric_types_to_parameters, parameters_to_pa
         else
             throw("Param vector of length $(length(param_vec)) not yet supported")
         end
-        push!(parameter_second_pass.args, :(
-        for (i,param) ∈ parameters
-
-            _L += type_length(param)# param is a symbol
-        end
-        ))
+        # push!(parameter_second_pass.args, :(
+        # for (i,param) ∈ parameters
+        #
+        #     _L += type_length(param)# param is a symbol
+        # end
+        # ))
     end
+
     initialize_q = quote
         @generated function $(Symbol(model_name, :Model))(; $keywordargs ) where {$(where_list...)}
             _L = 0
             parametric_type_dict = Dict{Symbol,Int}()
-            parameter_types = Expr[]
+            types_of_parameters = Expr[]
             parameters = Tuple{Int,Symbol}[]
             datapriors = Tuple{Int,Symbol}[] # what is this needed for?
 
+            $parameter_v_data_check
+
 
             # insert parameter stuff here
+            for param_type ∈ $(Expr(:tuple, keys(parametric_types_to_parameters)... ))
+                if param_type ∉ keys(parametric_type_dict)
+
+                end
+
+            end
             for i ∈ eachindex(parameters)
-                param, param_type = parameters[i], parameter_types[i]
-                param ∈ keys(parametric_type_dict) && continue #found
-                parameter_types[i] = postwalk(x -> (isa(x, Symbol) && x ∈ keys(parametric_type_dict)) ? parametric_type_dict[x] : x, param_type)
+                param, param_type = parameters[i], types_of_parameters[i]
+                types_of_parameters[i] = postwalk(
+                    x -> (isa(x, Symbol) && x ∈ keys(parametric_type_dict))
+                        ?
+                        parametric_type_dict[x] : x,
+                    param_type
+                )
             end
 
         end
