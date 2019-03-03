@@ -27,7 +27,7 @@ end
 function translate_sampling_statements(expr)
     prewalk(expr) do x
         if @capture(x, y_ ~ f_(θ__))
-            if f ∈ FMADD_DISTRIBUTIONS
+            if f ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
                 if @capture(x, y_ ~ f_(α_ + X_ * β_ , θ__))
                     return :(target = target + $(Symbol(f,:_fmadd_logeval_dropconst))($y, $X, $β, $α, $(θ...)))
                 elseif @capture(x, y_ ~ f_(X_ * β_ + α_, θ__))
@@ -146,11 +146,11 @@ a *= b
 a /= b
 have been expanded. Later insertions of these symbols, for example in the constraining
 transformations of the parameters, will be bypassed. This allows for incrementing of
-the `VectorizationBase.vectorizable` parameters:
+the `ProbabilityModels.VectorizationBase.vectorizable` parameters:
 Symbol("##θparameter##")
 Symbol("##∂θparameter##")
 """
-function rename_assignemnts(expr, vars = Dict{Symbol,Symbol}())
+function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
     postwalk(expr) do ex
         if @capture(ex, a_ = b_)
             if isa(b, Expr)
@@ -177,7 +177,7 @@ function rename_assignemnts(expr, vars = Dict{Symbol,Symbol}())
     # for i ∈ eachindex(expr.args)
     #     ex = expr.args[i]
     #     isa(ex, Expr) || continue
-    #     ex.head == :block && rename_assignemnts(ex, vars)
+    #     ex.head == :block && ProbabilityModels.rename_assignments(ex, vars)
     #     ex.head == :(=) || continue
     #     for j ∈ 2:length(ex.args)
     #         ex.args[j] = postwalk(ex.args[j]) do x
@@ -297,7 +297,7 @@ function constant_drop_pass!(first_pass, expr, tracked_vars)
             throw("Loops not yet supported!")
             # reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
         elseif @capture(x, out_ = f_(A__))
-            if f ∈ DISTRIBUTION_DIFF_RULES
+            if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
                 track_tup = Expr(:tuple,)
                 for a ∈ A
                     if a ∈ tracked_vars
@@ -307,7 +307,7 @@ function constant_drop_pass!(first_pass, expr, tracked_vars)
                         push!(track_tup.args, false)
                     end
                 end
-                push!(first_pass.args, :($out = $f($(A...), Val{$track_tup}())))
+                push!(first_pass.args, :($out = ProbabilityModels.ProbabilityDistributions.$f($(A...), Val{$track_tup}())))
                 # push!(first_pass.args, :(@show $(A...)))
                 # push!(first_pass.args, :(@show $out))
             else
@@ -327,7 +327,7 @@ function reverse_diff_pass(expr, gradient_targets)
     first_pass = q_first_pass.args
     q_second_pass = @q begin end
     second_pass = q_second_pass.args
-    reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+    ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
     q_first_pass, q_second_pass
 end
 
@@ -337,7 +337,7 @@ end
 #     first_pass_loop = q_first_pass_loop.args
 #     q_second_pass_loop = @q begin end
 #     second_pass_loop = q_second_pass_loop.args
-#     reverse_diff_pass!(first_pass_loop, second_pass_loop, body, tracked_vars)
+#     ProbabilityModels.reverse_diff_pass!(first_pass_loop, second_pass_loop, body, tracked_vars)
 #     # then we create two for loops.
 #     push!(first_pass_loop, quote
 #         for $i ∈ $iter
@@ -400,8 +400,8 @@ end
 
 function diff!(first_pass, second_pass, tracked_vars, out, f, A)
     arity = length(A)
-    if f ∈ DISTRIBUTION_DIFF_RULES
-        distribution_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
+    if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
+        ProbabilityDistributions.distribution_diff_rule!(:(ProbabilityModels.ProbabilityDistributions), first_pass, second_pass, tracked_vars, out, A, f)
     elseif haskey(SPECIAL_DIFF_RULES, f)
         SPECIAL_DIFF_RULES[f](first_pass, second_pass, tracked_vars, out, A)
     elseif DiffRules.hasdiffrule(:Base, f, arity)
@@ -481,14 +481,14 @@ function generate_generated_funcs_expressions(model_name, expr)
     # end
     struct_kwarg_quote = quote
         function $model_name(; $(variables...))
-            $model_name($([:(types_to_vals($v)) for v ∈ variables]...))
+            $model_name($([:(ProbabilityModels.types_to_vals($v)) for v ∈ variables]...))
         end
     end
 
     # Translate the sampling statements, and then flatten the expression to remove nesting.
     expr = translate_sampling_statements(expr) |>
                 flatten_expression# |>
-                # rename_assignemnts
+                # ProbabilityModels.rename_assignments
 
     # for Value definition:
     # flattened expression needs a tracking pass
@@ -558,7 +558,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         push!(θq_body, quote
             if $(variable_type_names[i]) <: Val
                 push!(model_parameters, $(QuoteNode(variables[i])))
-                load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), extract_typeval($(variable_type_names[i])), return_partials)
+                DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), return_partials)
             else
                 push!(first_pass.args, $load_data)
             end
@@ -566,12 +566,12 @@ function generate_generated_funcs_expressions(model_name, expr)
     end
     push!(q_body, quote
         tracked_vars = Set(model_parameters)
-        first_pass, name_dict = rename_assignemnts(first_pass)
-        expr, name_dict = rename_assignemnts(expr, name_dict)
+        first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
+        expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
         θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
         if return_partials
-            second_pass, name_dict = rename_assignemnts(second_pass, name_dict)
-            reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+            second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
+            ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
             # variable renaming rather than incrementing makes initiazing
             # target to an integer okay.
             expr_out = quote
@@ -585,55 +585,58 @@ function generate_generated_funcs_expressions(model_name, expr)
                 )
             end
         else
-            constant_drop_pass!(first_pass, expr, tracked_vars)
+            ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
             expr_out = quote
                 # target = 0
-                $(Symbol("##θparameter##")) = VectorizationBase.vectorizable($θ_sym)
+                $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                 $first_pass
                 $(name_dict[:target])
             end
         end
         quote
             @fastmath @inbounds begin
-                $(first_updates_to_assignemnts(expr_out))
+                $(ProbabilityModels.first_updates_to_assignemnts(expr_out))
             end
         end
     end)
     push!(θq_body, quote
         tracked_vars = Set(model_parameters)
-        first_pass, name_dict = rename_assignemnts(first_pass)
-        expr, name_dict = rename_assignemnts(expr, name_dict)
+        first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
+        expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
         θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
         T_sym = $(QuoteNode(T))
         if return_partials
-            second_pass, name_dict = rename_assignemnts(second_pass, name_dict)
-            TLθ = PaddedMatrices.type_length($θ) # This refers to the type of the input
-            reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+            second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
+            TLθ = ProbabilityModels.PaddedMatrices.type_length($θ) # This refers to the type of the input
+            ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
             expr_out = quote
                 # target = zero($T_sym)
-                $(Symbol("##θparameter##")) = VectorizationBase.vectorizable($θ_sym)
+                $(Symbol("##θparameter##")) = ProbabilityModels.ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                 $first_pass
-                $(Symbol("##∂θparameter##m")) = PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
-                $(Symbol("##∂θparameter##")) = VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
+                $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
+                $(Symbol("##∂θparameter##")) = ProbabilityModels.ProbabilityModels.VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
                 $(Symbol("###adjoint###", name_dict[:target])) = ProbabilityModels.One()
                 $second_pass
+
+                $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
                 LogDensityProblems.ValueGradient(
-                    $(name_dict[:target]),
-                    PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
+                    isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
+                    $(Symbol("##∂θparameter##mconst"))
                 )
             end
         else
-            constant_drop_pass!(first_pass, expr, tracked_vars)
+            ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
             expr_out = quote
                 # target = zero($T_sym)
-                $(Symbol("##θparameter##")) = VectorizationBase.vectorizable($θ_sym)
+                $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                 $first_pass
                 LogDensityProblems.Value( $(name_dict[:target]) )
             end
         end
         quote
             @fastmath @inbounds begin
-                $(first_updates_to_assignemnts(expr_out, model_parameters))
+                # @inbounds begin
+                $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
             end
         end
     end)
@@ -647,10 +650,10 @@ function generate_generated_funcs_expressions(model_name, expr)
             dim = 0
             $([quote
                 if $v <: Val
-                    dim += PaddedMatrices.type_length(extract_typeval($v))
+                    dim += ProbabilityModels.PaddedMatrices.type_length(ProbabilityModels.extract_typeval($v))
                 end
             end for v ∈ variable_type_names]...)
-            PaddedMatrices.Static{dim}()
+            ProbabilityModels.PaddedMatrices.Static{dim}()
         end
     end
 
@@ -659,14 +662,14 @@ function generate_generated_funcs_expressions(model_name, expr)
 end
 
 macro model(model_name, expr)
-    struct_quote, struct_kwarg_quote, q, θq, dim_q, variables = generate_generated_funcs_expressions(esc(model_name), expr)
+    struct_quote, struct_kwarg_quote, q, θq, dim_q, variables = generate_generated_funcs_expressions(model_name, expr)
 
     printstring = """
         Defined model: $model_name.
         Unknowns: $(variables[1])$([", " * string(variables[i]) for i ∈ 2:length(variables)]...).
     """
-    quote
+    esc(quote
         $struct_quote; $struct_kwarg_quote; $θq; $dim_q;
         println($printstring)
-    end
+    end)
 end

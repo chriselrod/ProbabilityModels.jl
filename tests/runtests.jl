@@ -75,6 +75,8 @@ includet("/home/chriselrod/Documents/progwork/julia/autodiff_work/special_diff_r
 includet("/home/chriselrod/Documents/progwork/julia/autodiff_work/model_macro_passes.jl")
 includet("/home/chriselrod/.julia/dev/ProbabilityModels/src/dynamic_hmc_interface.jl")
 
+using ProbabilityModels, DistributionParameters, LogDensityProblems, DynamicHMC
+using VectorizationBase, LoopVectorization
 @model BernoulliLogitModel begin
     β₀ ~ Normal(μ₀, σ₀)
     β₁ ~ Normal(μ₁, σ₁)
@@ -93,10 +95,10 @@ eval(dimquote)
 using StaticArrays
 N = 800; N_β = 4;
 X = randn(N, N_β);
-β = SVector{N_β}(-1.595526740808615, -1.737875659746032, -0.26107993378119343, 0.6500851571519769);
-α = -0.05
-Xβ = X * β; p = rand(N);
-y = @. p < 1 / (1 + exp( - Xβ - α));
+β₁ = [-1.595526740808615, -1.737875659746032, -0.26107993378119343, 0.6500851571519769];
+β₀ = -0.05
+Xβ₁ = X * β₁; p = rand(N);
+y = @. p < 1 / (1 + exp( - Xβ₁ - β₀));
 sum(y)
 
 ℓ1 = BernoulliLogitModel(
@@ -113,7 +115,7 @@ logdensity(LogDensityProblems.ValueGradient, ℓ1, a)
 
 
 
-@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc(rng, ℓ1, 4000);
+@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(rng, ℓ1, 4000);
 sample_mean(mcmc_chain)
 sample_cov(mcmc_chain)
 

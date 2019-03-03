@@ -75,6 +75,12 @@ version = "0.0.10"
 deps = ["Random", "Serialization", "Sockets"]
 uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
+[[DistributionParameters]]
+deps = ["LoopVectorization", "PaddedMatrices", "SIMDPirates", "SLEEF", "VectorizationBase", "VectorizedRNG"]
+path = "/home/chriselrod/.julia/dev/DistributionParameters"
+uuid = "c01b26ed-ce4c-5898-8a3a-ab63e1ee7b47"
+version = "0.1.0"
+
 [[DocStringExtensions]]
 deps = ["LibGit2", "Markdown", "Pkg", "Test"]
 git-tree-sha1 = "1df01539a1c952cef21f2d2d1c092c2bcf0177d7"
@@ -172,6 +178,12 @@ uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 [[Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[[ProbabilityDistributions]]
+deps = ["LoopVectorization", "PaddedMatrices", "SIMDPirates", "SLEEF", "VectorizationBase", "VectorizedRNG"]
+path = "/home/chriselrod/.julia/dev/ProbabilityDistributions"
+uuid = "3e413219-3d65-5be9-8809-9d8824e993e6"
+version = "0.1.0"
 
 [[REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets"]

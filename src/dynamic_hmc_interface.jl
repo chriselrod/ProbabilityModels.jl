@@ -69,7 +69,7 @@ end
     end
 end
 
-function DynamicHMC.leapfrog(H::DynamicHMC.Hamiltonian{Tℓ,Tκ}, z::DynamicHMC.PhasePoint, ϵ) where {Tℓ, Tκ <: DynamicHMC.EuclideanKE}
+function DynamicHMC.leapfrog(H::DynamicHMC.Hamiltonian{Tℓ,Tκ}, z::DynamicHMC.PhasePoint, ϵ) where {Tℓ,N,T,A<:Union{<:PaddedMatrices.AbstractConstantFixedSizePaddedMatrix{N,N,T},<:Diagonal{T,<:ConstantFixedSizePaddedVector{N,T}}},Tκ <: DynamicHMC.GaussianKE{A}}
     DynamicHMC.@unpack ℓ, κ = H
     DynamicHMC.@unpack p, q, ℓq = z
     ϵₕ = ϵ/2
@@ -140,7 +140,7 @@ function sample_crossprod_quote(N,T,Ptrunc,Pfull,stride)
     q
 end
 
-function DynamicHMC.tune(sampler_0, seq::DynamicHMC.TunerSequence)
+function stable_tune(sampler_0, seq::DynamicHMC.TunerSequence)
     tuners = seq.tuners
     Base.Cartesian.@nexprs 7 i -> begin
         tuner_i = tuners[i]
@@ -284,9 +284,9 @@ end
 end
 
 @generated default_tuners() = DynamicHMC.bracketed_doubling_tuner()
-function NUTS_init_and_tune_mcmc_default(rng, ℓ, N)
-    sampler_init = DynamicHMC.NUTS_init(rng, ℓ)
-    sampler_tuned = DynamicHMC.tune(sampler_init, default_tuners())
+function NUTS_init_tune_mcmc_default(rng, ℓ, N; args...)
+    sampler_init = DynamicHMC.NUTS_init(rng, ℓ; args...)
+    sampler_tuned = stable_tune(sampler_init, default_tuners())
     DynamicHMC.mcmc(sampler_tuned, N), sampler_tuned
 end
-NUTS_init_tune_mcmc_default(ℓ, N) = NUTS_init_tune_mcmc_default(GLOBAL_ScalarVectorPCG, ℓ, N)
+NUTS_init_tune_mcmc_default(ℓ, N; args...) = NUTS_init_tune_mcmc_default(GLOBAL_ScalarVectorPCG, ℓ, N; args...)

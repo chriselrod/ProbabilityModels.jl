@@ -6,10 +6,9 @@ using   MacroTools, DiffRules,
         DynamicHMC, LogDensityProblems,
         Random, VectorizedRNG, RandomNumbers
 
-import MacroTools: postwalk, prewalk, @capture
+import MacroTools: postwalk, prewalk, @capture, @q
 
-export @model, LogDensityProblems.Value, LogDensityProblems.ValueGradient, LogDensityProblems.logdensity,
-        NUTS_init_tune_mcmc_default
+export @model, NUTS_init_tune_mcmc_default, sample_cov, sample_mean
 
 include("special_diff_rules.jl")
 include("model_macro_passes.jl")
