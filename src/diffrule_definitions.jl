@@ -39,12 +39,12 @@ end
 end
 @inline function f_normal_lpdf(y::V, μ::V, σ::V) where {N,T,V <: Vec{N,T}}
     δ = vdiv(vsub(y, μ), σ)
-    vsub(vmul(T(-0.5),vmul(δ,δ)), SLEEFwrap.log_fast(σ))
+    vsub(vmul(T(-0.5),vmul(δ,δ)), SLEEF.log_fast(σ))
 end
 @inline function f_normal_prec_lpdf(y::V, μ::V, λ::V) where {N,T,V <: Vec{N,T}}
     δ = vsub(y, μ)
     δ² = vmul(δ, δ)
-    vmul(T(-0.5), vfma(δ², λ, vsub(SLEEFwrap.log_fast(λ))))
+    vmul(T(-0.5), vfmsub(δ², λ, SLEEF.log_fast(λ)))
 end
 ### Rely on SLEEF vectorization macro for vector types.
 

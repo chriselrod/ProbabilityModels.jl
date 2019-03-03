@@ -1,11 +1,12 @@
-
+M
 # to add:
 # PDMatrix
 # Cholesky Factor matrix
 # Simplex
+# abstract type AbstractParameter end
+# abstract type AbstractScalarParameter end
 
-
-struct Float{T} <: Real
+struct RealFloat{T} <: Real
     data::T
 end
 struct PositiveFloat{T} <: Real
@@ -33,91 +34,91 @@ const ScalarParameter{T} = Union{
 }
 
 
-struct SizedVector{L,T} <: AbstractVector{T}# <: Parameter{T}
-    data::SizedSIMDVector{L,T,L,L}
+struct RealVector{S,T,P,L} <: AbstractConstantFixedSizePaddedVector{M,T,P,L}
+    data::NTuple{L,T}
 end
-struct SizedPositiveVector{L,T} <: AbstractVector{T}
-    data::SizedSIMDVector{L,T,L,L}
+struct PositiveVector{M,T,P,L} <: AbstractConstantFixedSizePaddedVector{M,T,P,L}
+    data::NTuple{L,T}
 end
-struct SizedLowerBoundVector{L,T,LB} <: AbstractVector{T}
-    data::SizedSIMDVector{L,T,L,L}
+struct LowerBoundVector{M,LB,T,P,L} <: AbstractConstantFixedSizePaddedVector{M,T,P,L}
+    data::NTuple{L,T}
 end
-struct SizedUpperBoundVector{L,T,UB} <: AbstractVector{T}
-    data::SizedSIMDVector{L,T,L,L}
+struct UpperBoundVector{M,UB,T,P,L} <: AbstractConstantFixedSizePaddedVector{M,T,P,L}
+    data::NTuple{L,T}
 end
-struct SizedBoundedVector{L,T,LB,UB} <: AbstractVector{T}
-    data::SizedSIMDVector{L,T,L,L}
+struct BoundedVector{M,LB,UB,T,P,L} <: AbstractConstantFixedSizePaddedVector{M,T,P,L}
+    data::NTuple{L,T}
 end
-struct SizedProbabilityVector{L,T} <: AbstractVector{T}
-    data::SizedSIMDVector{L,T,L,L}
+struct ProbabilityVector{M,T,P,L} <: AbstractConstantFixedSizePaddedVector{M,T,P,L}
+    data::NTuple{L,T}
 end
-const VectorParameter{L,T} = Union{
-    SizedVector{L,T},
-    SizedPositiveVector{L,T},
-    SizedLowerBoundVector{L,T},
-    SizedUpperBoundVector{L,T},
-    SizedBoundedVector{L,T},
-    SizedProbabilityVector{L,T}
+const VectorParameter{M,T,P,L} = Union{
+    RealVector{M,T,P,L},
+    PositiveVector{M,T,P,L},
+    LowerBoundVector{M,LB,T,P,L} where {LB},
+    UpperBoundVector{M,UB,T,P,L} where {UB},
+    BoundedVector{M,LB,UB,T,P,L} where {LB, UB},
+    ProbabilityVector{M,T,P,L}
 }
 
 
 
-struct SizedMatrix{M,N,T,R,L} <: AbstractMatrix{T}
+struct RealMatrix{M,N,T,P,L} <: AbstractConstantFixedSizePaddedMatrix{M,N,T,P,L}
     data::SizedSIMDMatrix{M,N,T,R,L}
 end
-struct SizedPositiveMatrix{M,N,T,R,L} <: AbstractMatrix{T}
+struct PositiveMatrix{M,N,T,P,L} <: AbstractConstantFixedSizePaddedMatrix{M,N,T,P,L}
     data::SizedSIMDMatrix{M,N,T,R,L}
 end
-struct SizedLowerBoundMatrix{M,N,T,LB,R,L} <: AbstractMatrix{T}
+struct LowerBoundMatrix{M,N,LB,T,P,L} <: AbstractConstantFixedSizePaddedMatrix{M,N,T,P,L}
     data::SizedSIMDMatrix{M,N,T,R,L}
 end
-struct SizedUpperBoundMatrix{M,NL,T,UB,R,L} <: AbstractMatrix{T}
+struct UpperBoundMatrix{M,N,UB,T,P,L} <: AbstractConstantFixedSizePaddedMatrix{M,N,T,P,L}
     data::SizedSIMDMatrix{M,N,T,R,L}
 end
-struct SizedBoundedMatrix{M,N,T,LB,UB,R,L} <: AbstractMatrix{T}
+struct BoundedMatrix{M,N,LB,UB,T,P,L} <: AbstractConstantFixedSizePaddedMatrix{M,N,T,P,L}
     data::SizedSIMDMatrix{M,N,T,R,L}
 end
-struct SizedProbabilityMatrix{M,N,T,R,L} <: AbstractMatrix{T}
+struct ProbabilityMatrix{M,N,T,P,L} <: AbstractConstantFixedSizePaddedMatrix{M,N,T,P,L}
     data::SizedSIMDMatrix{M,N,T,R,L}
 end
-const MatrixParameter{M,N,T,R,L} = Union{
-    SizedMatrix{M,N,T,R,L},
-    SizedPositiveMatrix{M,N,T,R,L},
-    SizedLowerBoundMatrix{M,N,T,R,L},
-    SizedUpperBoundMatrix{M,N,T,R,L},
-    SizedBoundedMatrix{M,N,T,R,L},
-    SizedProbabilityMatrix{M,N,T,R,L}
+const MatrixParameter{M,N,T,P,L} = Union{
+    RealMatrix{M,N,T,P,L},
+    PositiveMatrix{M,N,T,P,L},
+    LowerBoundMatrix{M,N,LB,T,P,L} where {LB},
+    UpperBoundMatrix{M,N,UB,T,P,L} where {UB},
+    BoundedMatrix{M,N,LB,UB,T,P,L} where {LB, UB},
+    ProbabilityMatrix{M,N,T,P,L}
 }
 
 const Parameters{T} = Union{
     ScalarParameter{T},
-    VectorParameter{L,T} where L,
+    VectorParameter{L,T} where {L},
     MatrixParameter{M,N,T} where {M,N}
 }
 const PositiveParameter{T} = Union{
     PositiveFloat{T},
-    SizedPositiveVector{L,T} where L,
-    SizedPositiveMatrix{M,N,T} where {M,N}
+    PositiveVector{L,T} where {L},
+    PositiveMatrix{M,N,T} where {M,N}
 }
 const LowerBoundedParameter{T,LB} = Union{
-    LowerBoundedFloat{T,LB},
-    SizedLowerBoundVector{L,T,LB} where L,
-    SizedLowerBoundMatrix{M,N,T,LB} where {M,N}
+    LowerBoundedFloat{LB,T},
+    LowerBoundVector{L,LB,T} where {L},
+    LowerBoundMatrix{M,N,LB,T} where {M,N}
 }
 const UpperBoundedParameter{T,UB} = Union{
-    UpperBoundedFloat{T,UB},
-    SizedUpperBoundVector{L,T,UB} where L,
-    SizedUpperBoundMatrix{M,N,T,UB} where {M,N}
+    UpperBoundedFloat{UB,T},
+    UpperBoundVector{L,UB,T} where {L},
+    UpperBoundMatrix{M,N,UB,T} where {M,N}
 }
 const BoundedParameter{T,LB,UB} = Union{
-    BoundedFloat{T,LB,UB},
-    SizedBoundVector{L,T,LB,UB} where L,
-    SizedBoundMatrix{M,N,T,LB,UB} where {M,N}
+    BoundedFloat{LB,UB,T},
+    BoundVector{L,LB,UB,T} where {L},
+    BoundMatrix{M,N,LB,UB,T} where {M,N}
 }
 const ProbabilityParameter{T} = Union{
     ProbabilityFloat{T},
-    SizedProbabilityVector{L,T} where L,
-    SizedProbabilityMatrix{M,N,T} where {M,N}
+    ProbabilityVector{L,T} where {L},
+    ProbabilityMatrix{M,N,T} where {M,N}
 }
 
 
@@ -162,6 +163,6 @@ type_length(::Type{<:MatrixParameter{M,N,T,R,L}}) where {M,N,T,R,L} = L
 
 
 function return_param_symbol(expr)
-    
+
 
 end

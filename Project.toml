@@ -4,6 +4,15 @@ authors = ["Chris Elrod <elrodc@gmail.com>"]
 version = "0.1.0"
 
 [deps]
-LightGraphs = "093fc24a-ae57-5d10-9952-331d41423f4d"
+DiffRules = "b552c78f-8df3-52c6-915a-8e097449b14b"
+DynamicHMC = "bbc10e6e-7c05-544b-b16e-64fede858acb"
+LogDensityProblems = "6fdf6af0-433a-55f7-b3ed-c6c6e0b8df7c"
+LoopVectorization = "bdcacae8-1622-11e9-2a5c-532679323890"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
-MetaGraphs = "626554b9-1ddb-594c-aa3c-2596fe9399a5"
+PaddedMatrices = "1f4db776-fdbc-11e8-06f3-e1707b8b4170"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+RandomNumbers = "e6cf234a-135c-5ec9-84dd-332b85af5143"
+SIMDPirates = "21efa798-c60a-11e8-04d3-e1a92915a26a"
+SLEEF = "3e6341c9-01f6-5312-b33f-f8894a2e817a"
+VectorizationBase = "3d5dd08c-fd9d-11e8-17fa-ed2836048c2f"
+VectorizedRNG = "33b4df10-0173-11e9-2a0c-851a7edac40e"
