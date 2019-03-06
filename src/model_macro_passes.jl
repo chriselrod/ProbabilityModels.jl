@@ -149,6 +149,8 @@ transformations of the parameters, will be bypassed. This allows for incrementin
 the `ProbabilityModels.VectorizationBase.vectorizable` parameters:
 Symbol("##θparameter##")
 Symbol("##∂θparameter##")
+
+This pass returns the expression in a static single assignment (SSA) form.
 """
 function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
     postwalk(expr) do ex
@@ -170,6 +172,10 @@ function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
             else
                 return :($a = $c)
             end
+        elseif @capture(ex, if cond_; conditionaleval_ end)
+
+        elseif @capture(ex, if cond_; conditionaleval_; else; alternateeval_ end)
+
         else
             return ex
         end
@@ -320,99 +326,7 @@ function constant_drop_pass!(first_pass, expr, tracked_vars)
     first_pass
 end
 
-# How to search modules?
-function reverse_diff_pass(expr, gradient_targets)
-    tracked_vars = Set{Symbol}(gradient_targets)
-    q_first_pass = @q begin end
-    first_pass = q_first_pass.args
-    q_second_pass = @q begin end
-    second_pass = q_second_pass.args
-    ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
-    q_first_pass, q_second_pass
-end
 
-# function reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
-#     # if we have a for loop, we apply the pass to the loop body, creating new loop expressions
-#     q_first_pass_loop = @q begin end
-#     first_pass_loop = q_first_pass_loop.args
-#     q_second_pass_loop = @q begin end
-#     second_pass_loop = q_second_pass_loop.args
-#     ProbabilityModels.reverse_diff_pass!(first_pass_loop, second_pass_loop, body, tracked_vars)
-#     # then we create two for loops.
-#     push!(first_pass_loop, quote
-#         for $i ∈ $iter
-#         # @vectorize for $i ∈ $iter
-#             $q_first_pass_loop
-#         end
-#     end)
-#     # Do we need the reverse?
-#     push!(second_pass_loop, quote
-#         for $i ∈ $iter
-#         # @vectorize for $i ∈ $iter
-#         # for $i ∈ reverse($iter)
-#             $q_second_pass_loop
-#         end
-#     end)
-# end
-
-function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
-    for x ∈ expr.args
-        if @capture(x, for i_ ∈ iter_ body_ end)
-            throw("Loops not yet supported!")
-            # reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
-        elseif @capture(x, out_ = f_(A__))
-            diff!(first_pass, second_pass, tracked_vars, out, f, A)
-        else
-            push!(first_pass, x)
-        end
-    end
-end
-
-function apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, diffrules::NTuple{N}) where {N}
-    track_out = false
-    push!(first_pass.args, :($out = $f($(A...))))
-    adjout = Symbol("###adjoint###", out)
-    for i ∈ eachindex(A)
-        A[i] ∈ tracked_vars || continue
-        track_out = true
-        ∂ = gensym(:∂)
-        push!(first_pass.args, :($∂ = $(diffrules[i])))
-        pushfirst!(second_pass.args, :( $(Symbol("###adjoint###", A[i])) += $∂ * $adjout ))
-    end
-    track_out && push!(tracked_vars, out)
-    nothing
-end
-function apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, diffrule)
-    length(A) == 1 || throw("length(A) == $(length(A)); must equal 1 when passed diffrules are: $(diffrule)")
-    track_out = false
-    push!(first_pass, :($out = $f($(A...))))
-    adjout = Symbol("###adjoint###", out)
-    for i ∈ eachindex(A)
-        A[i] ∈ tracked_vars || continue
-        track_out = true
-        ∂ = gensym(:∂)
-        push!(first_pass.args, :($∂ = $(diffrule)))
-        pushfirst!(second_pass.args, :( $(Symbol("###adjoint###", A[i])) += $∂ * $adjout ))
-    end
-    track_out && push!(tracked_vars, out)
-    nothing
-end
-
-function diff!(first_pass, second_pass, tracked_vars, out, f, A)
-    arity = length(A)
-    if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
-        ProbabilityDistributions.distribution_diff_rule!(:(ProbabilityModels.ProbabilityDistributions), first_pass, second_pass, tracked_vars, out, A, f)
-    elseif haskey(SPECIAL_DIFF_RULES, f)
-        SPECIAL_DIFF_RULES[f](first_pass, second_pass, tracked_vars, out, A)
-    elseif DiffRules.hasdiffrule(:Base, f, arity)
-        apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, DiffRules.diffrule(:Base, f, A...))
-    elseif DiffRules.hasdiffrule(:SpecialFunctions, f, arity)
-        apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, DiffRules.diffrule(:SpecialFunctions, f, A...))
-    else # ForwardDiff?
-        # Or, for now, Zygote for univariate.
-        throw("Fall back differention rules not yet implemented, and no method yet to handle $f($(A...))")
-    end
-end
 
 # vars2 = Set{Symbol}();
 # push!(vars2, :a);
@@ -456,7 +370,7 @@ struct One end
 # This should be the only method I have to define.
 @inline Base.:*(a, ::One) = a
 # But I'll define this one too. Would it be better not to, so that we get errors
-# if the adjoint is for some reason multiplied on the right?
+# if the seed is for some reason multiplied on the right?
 @inline Base.:*(::One, a) = a
 
 types_to_vals(::Type{T}) where {T} = Val{T}()
@@ -577,11 +491,11 @@ function generate_generated_funcs_expressions(model_name, expr)
             expr_out = quote
                 # target = 0
                 $first_pass
-                $(Symbol("###adjoint###", name_dict[:target])) = ProbabilityModels.One()
+                $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
                 $second_pass
                 (
                     $(name_dict[:target]),
-                    $(Expr(:tuple, [Symbol("###adjoint###", mp) for mp ∈ model_parameters]...))
+                    $(Expr(:tuple, [Symbol("###seed###", mp) for mp ∈ model_parameters]...))
                 )
             end
         else
@@ -615,7 +529,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                 $first_pass
                 $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
                 $(Symbol("##∂θparameter##")) = ProbabilityModels.ProbabilityModels.VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
-                $(Symbol("###adjoint###", name_dict[:target])) = ProbabilityModels.One()
+                $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
                 $second_pass
 
                 $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))

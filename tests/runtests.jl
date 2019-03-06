@@ -83,12 +83,6 @@ using VectorizationBase, LoopVectorization
     y ~ Bernoulli_logit(β₀ + x * β₁)
 end
 
-struct_quote, struct_kwarg_quote, directquote, thetaquote, dimquote = generate_generated_funcs_expressions(:BernoulliLogitModel, q);
-using LogDensityProblems, DynamicHMC
-eval(struct_quote)
-eval(struct_kwarg_quote)
-eval(thetaquote)
-eval(dimquote)
 
 
 
@@ -101,7 +95,7 @@ Xβ₁ = X * β₁; p = rand(N);
 y = @. p < 1 / (1 + exp( - Xβ₁ - β₀));
 sum(y)
 
-ℓ1 = BernoulliLogitModel(
+ℓ = BernoulliLogitModel(
     σ₀ = 10.0, σ₁ = 5.0, μ₀ = 0.0, μ₁ = 0.0,
     β₀ = RealFloat, β₁ = RealVector{4},
     y = y, x = X
@@ -109,12 +103,21 @@ sum(y)
 
 
 # eval(θquote)
-dimension(ℓ1)
-a = fill(1.0, dimension(ℓ1));
-logdensity(LogDensityProblems.ValueGradient, ℓ1, a)
+dimension(ℓ)
+a = fill(1.0, dimension(ℓ));
+logdensity(LogDensityProblems.ValueGradient, ℓ, a)
+
+using BenchmarkTools
+@benchmark logdensity(LogDensityProblems.ValueGradient, $ℓ, $a)
 
 
 
+struct_quote, struct_kwarg_quote, directquote, thetaquote, dimquote = generate_generated_funcs_expressions(:BernoulliLogitModel, q);
+using LogDensityProblems, DynamicHMC
+eval(struct_quote)
+eval(struct_kwarg_quote)
+eval(thetaquote)
+eval(dimquote)
 @time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(rng, ℓ1, 4000);
 sample_mean(mcmc_chain)
 sample_cov(mcmc_chain)
