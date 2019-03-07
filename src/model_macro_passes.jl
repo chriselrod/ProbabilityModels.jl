@@ -173,27 +173,51 @@ function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
                 return :($a = $c)
             end
         elseif @capture(ex, if cond_; conditionaleval_ end)
-
+            conditionaleval, tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
+            else_expr = quote end
+            for (k, (vbase,vfinal)) ∈ tracked_vars.reassigned
+                push!(else_expr.args, :($vfinal = $vbase))
+                vars[k] = vfinal
+            end
+            return quote
+                if $cond
+                    $conditionaleval
+                else
+                    $else_expr
+                end
+            end
         elseif @capture(ex, if cond_; conditionaleval_; else; alternateeval_ end)
-
+            if_conditionaleval, if_tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
+            else_conditionaleval, else_tracked_vars = rename_assignments(alternateeval, TrackedDict(vars))
+            for (k, (vbase,vfinal)) ∈ if_tracked_vars.reassigned
+                if haskey(else_tracked_vars.reassigned, k)
+                    push!(else_conditionaleval.args, :($vfinal = $(else_tracked_vars.reassigned[k])))
+                else
+                    push!(else_conditionaleval.args, :($vfinal = $vbase))
+                end
+                vars[k] = vfinal
+            end
+            for (k, (vbase,vfinal)) ∈ else_tracked_vars.reassigned
+                haskey(if_tracked_vars.reassigned, k) && continue
+                push!(if_conditionaleval.args, :($vfinal = $vbase))
+                vars[k] = vfinal
+            end
+            for k ∈ union(keys(if_tracked_vars.newlyassigned),keys(else_tracked_vars.newlyassigned))
+                canonical_name = if_tracked_vars.newlyassigned[k]
+                vars[k] = canonical_name
+                push!(else_expr.args, :($canonical_name = $(else_tracked_vars.newlyassigned[k])))
+            end
+            return quote
+                if $cond
+                    $if_conditionaleval
+                else
+                    $else_conditionaleval
+                end
+            end
         else
             return ex
         end
     end, vars
-    # for i ∈ eachindex(expr.args)
-    #     ex = expr.args[i]
-    #     isa(ex, Expr) || continue
-    #     ex.head == :block && ProbabilityModels.rename_assignments(ex, vars)
-    #     ex.head == :(=) || continue
-    #     for j ∈ 2:length(ex.args)
-    #         ex.args[j] = postwalk(ex.args[j]) do x
-    #             get(vars, x, x)
-    #         end
-    #     end
-    #     lhs = ex.args[1]
-    #     vars[lhs] = ex.args[1] = gensym(lhs)
-    # end
-    # expr, vars
 end
 
 """

@@ -34,17 +34,37 @@ end
 # end
 
 function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
-    for x ∈ expr.args
+    postwalk(expr) do x
         if @capture(x, for i_ ∈ iter_ body_ end)
             throw("Loops not yet supported!")
             # reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
         elseif @capture(x, out_ = f_(A__))
             diff!(first_pass, second_pass, tracked_vars, out, f, A)
+        elseif @capture(x, out_ = A_) && isa(A, Symbol)
+            push!(first_pass.args, x)
+            pushfirst!(second_pass.args, :( $(Symbol("###seed###", A)) += $(Symbol("###seed###", out)) ))
         else
             push!(first_pass, x)
         end
+        x
     end
 end
+# function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+#     for x ∈ expr.args
+#         if @capture(x, for i_ ∈ iter_ body_ end)
+#             throw("Loops not yet supported!")
+#             # reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
+#         elseif @capture(x, out_ = f_(A__))
+#             diff!(first_pass, second_pass, tracked_vars, out, f, A)
+#         # elseif @capture(x, out_ = A_) && (isa(A,Symbol))
+#         #     push!(first_pass, x)
+#         #     pushfirst!(second_pass, :())
+#         else
+#             push!(first_pass, x)
+#         end
+#     end
+# end
+
 
 function apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, diffrules::NTuple{N}) where {N}
     track_out = false
