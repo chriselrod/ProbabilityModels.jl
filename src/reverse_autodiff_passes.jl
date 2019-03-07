@@ -43,8 +43,8 @@ function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
         elseif @capture(x, out_ = A_) && isa(A, Symbol)
             push!(first_pass.args, x)
             pushfirst!(second_pass.args, :( $(Symbol("###seed###", A)) += $(Symbol("###seed###", out)) ))
-        else
-            push!(first_pass, x)
+        # else
+        #     push!(first_pass.args, x)
         end
         x
     end
@@ -160,7 +160,7 @@ function zygote_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
     if length(A) == length(anon_args)
         # we'll be easy on the compiler, and not create an anonymous function
         push!(first_pass.args, quote
-            $out, $back = forward($f, $(A...)))
+            $out, $back = forward($f, $(A...))
             $out isa Real || outlinederror("Function output is not scalar")
             $adjoints = $back(Int8(1))
         end)

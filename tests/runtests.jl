@@ -41,12 +41,15 @@ push!(model_parameters, :β₁)
 load_parameter(first_pass.args, second_pass.args, :β₁, RealVector{4,Float64}, return_partials)
 
 tracked_vars = Set(model_parameters)
-first_pass, name_dict = rename_assignemnts(first_pass)
-expr, name_dict = rename_assignemnts(expr, name_dict)
+first_pass, name_dict = rename_assignments(first_pass)
+expr, name_dict = rename_assignments(expr, name_dict)
 
-second_pass, name_dict = rename_assignemnts(second_pass, name_dict)
+second_pass, name_dict = rename_assignments(second_pass, name_dict)
 TLθ = 5 #type_length($θ) # This refers to the type of the input
 reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+first_pass
+second_pass
+
 T_sym = gensym(:T); θ_sym = gensym(:θ);
 expr_out = quote
     # target = zero($T_sym)
@@ -86,12 +89,13 @@ end
 
 
 
-using StaticArrays
+# using StaticArrays
 N = 800; N_β = 4;
 X = randn(N, N_β);
 β₁ = [-1.595526740808615, -1.737875659746032, -0.26107993378119343, 0.6500851571519769];
 β₀ = -0.05
-Xβ₁ = X * β₁; p = rand(N);
+Xβ₁ = X * β₁;
+p = rand(N);
 y = @. p < 1 / (1 + exp( - Xβ₁ - β₀));
 sum(y)
 
@@ -107,9 +111,16 @@ dimension(ℓ)
 a = fill(1.0, dimension(ℓ));
 logdensity(LogDensityProblems.ValueGradient, ℓ, a)
 
+using LogDensityProblems, DynamicHMC
+@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 4000);
+sample_mean(mcmc_chain)
+sample_cov(mcmc_chain)
+
+
+
 using BenchmarkTools
 @benchmark logdensity(LogDensityProblems.ValueGradient, $ℓ, $a)
-
+@benchmark NUTS_init_tune_mcmc_default($ℓ, 4000, report = DynamicHMC.ReportSilent())
 
 
 struct_quote, struct_kwarg_quote, directquote, thetaquote, dimquote = generate_generated_funcs_expressions(:BernoulliLogitModel, q);
