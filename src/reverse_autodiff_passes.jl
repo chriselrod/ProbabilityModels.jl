@@ -33,6 +33,28 @@ end
 #     end)
 # end
 
+function reverse_diff_ifelse!(first_pass, second_pass, tracked_vars, cond, conditionaleval, alternateeval)
+    cond_eval_first_pass = quote end; cond_eval_second_pass = quote end
+    reverse_diff_pass!(cond_eval_first_pass, cond_eval_second_pass, conditionaleval, tracked_vars)
+    alt_eval_first_pass = quote end; alt_eval_second_pass = quote end
+    reverse_diff_pass!(alt_eval_first_pass, alt_eval_second_pass, alternateeval, tracked_vars)
+    push!(first_pass.args, quote
+        if $cond
+            $cond_eval_first_pass
+        else
+            $alt_eval_first_pass
+        end
+    end)
+    pushfirst!(second_pass.args, quote
+        if $cond
+            $cond_eval_second_pass
+        else
+            $alt_eval_second_pass
+        end
+    end)
+    nothing
+end
+
 function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
     postwalk(expr) do x
         if @capture(x, for i_ ∈ iter_ body_ end)
@@ -43,6 +65,8 @@ function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
         elseif @capture(x, out_ = A_) && isa(A, Symbol)
             push!(first_pass.args, x)
             pushfirst!(second_pass.args, :( $(Symbol("###seed###", A)) += $(Symbol("###seed###", out)) ))
+        elseif @capture(ex, if cond_; conditionaleval_; else; alternateeval_ end)
+            reverse_diff_ifelse!(first_pass, second_pass, tracked_vars, cond, conditionaleval, alternateeval)
         # else
         #     push!(first_pass.args, x)
         end

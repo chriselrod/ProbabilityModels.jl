@@ -173,6 +173,7 @@ function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
                 return :($a = $c)
             end
         elseif @capture(ex, if cond_; conditionaleval_ end)
+            conditional = postwalk(x -> get(vars, x, x), cond)
             conditionaleval, tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
             else_expr = quote end
             for (k, (vbase,vfinal)) ∈ tracked_vars.reassigned
@@ -180,13 +181,14 @@ function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
                 vars[k] = vfinal
             end
             return quote
-                if $cond
+                if $conditional
                     $conditionaleval
                 else
                     $else_expr
                 end
             end
         elseif @capture(ex, if cond_; conditionaleval_; else; alternateeval_ end)
+            conditional = postwalk(x -> get(vars, x, x), cond)
             if_conditionaleval, if_tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
             else_conditionaleval, else_tracked_vars = rename_assignments(alternateeval, TrackedDict(vars))
             for (k, (vbase,vfinal)) ∈ if_tracked_vars.reassigned
@@ -208,7 +210,7 @@ function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
                 push!(else_expr.args, :($canonical_name = $(else_tracked_vars.newlyassigned[k])))
             end
             return quote
-                if $cond
+                if $conditional
                     $if_conditionaleval
                 else
                     $else_conditionaleval

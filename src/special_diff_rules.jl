@@ -9,7 +9,7 @@
 const SPECIAL_DIFF_RULES = Dict{Symbol,Function}()
 function exp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a = A[1]
-    push!(first_pass.args, :($out = SLEEF.exp($a)))
+    push!(first_pass.args, :($out = SLEEFPirates.exp($a)))
     a ∈ tracked_vars || return nothing
     push!(tracked_vars, out)
     # ∂ = gensym(:∂)
@@ -21,7 +21,7 @@ end
 SPECIAL_DIFF_RULES[:exp] = exp_diff_rule!
 function log_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a = A[1]
-    push!(first_pass.args, :($out = SLEEF.log($a)))
+    push!(first_pass.args, :($out = SLEEFPirates.log($a)))
     a ∈ tracked_vars || return nothing
     push!(tracked_vars, out)
     # ∂ = gensym(:∂)
