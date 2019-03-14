@@ -100,7 +100,7 @@ function apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, diff
         track_out = true
         ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
         push!(first_pass.args, :($∂ = $(diffrules[i])))
-        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) += $∂ * $seedout ))
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) += $seedout * $∂ ))
     end
     track_out && push!(tracked_vars, out)
     nothing
@@ -115,7 +115,7 @@ function apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, diff
         track_out = true
         ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
         push!(first_pass.args, :($∂ = $(diffrule)))
-        pushfirst!(second_pass.args, :( $(Symbol("###seed###", A[i])) += $∂ * $seedout ))
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", A[i])) += $seedout * $∂ ))
     end
     track_out && push!(tracked_vars, out)
     nothing
@@ -172,7 +172,7 @@ function zygote_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
         push!(anon_args.args, ga)
         ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
         push!(adjoints.args, ∂)
-        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) += $∂ * $seedout ))
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) += $seedout * $∂ ))
     end
     if length(track) > 0
         push!(tracked_vars, out)

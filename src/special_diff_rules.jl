@@ -15,7 +15,7 @@ function exp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     # ∂ = gensym(:∂)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :($∂ = $out))
-    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) += $∂ * $(Symbol("###seed###", out)) ))
+    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) += $(Symbol("###seed###", out)) * $∂ ))
     nothing
 end
 SPECIAL_DIFF_RULES[:exp] = exp_diff_rule!
@@ -27,7 +27,7 @@ function log_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     # ∂ = gensym(:∂)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :($∂ = inv($a)))
-    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) += $∂ * $(Symbol("###seed###", out)) ))
+    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) += $(Symbol("###seed###", out)) * $∂ ))
     nothing
 end
 SPECIAL_DIFF_RULES[:log] = log_diff_rule!
