@@ -2,7 +2,8 @@ module ProbabilityModels
 
 using   MacroTools, DiffRules,
         VectorizationBase, SIMDPirates, LoopVectorization, SLEEFPirates,
-        PaddedMatrices, DistributionParameters, ProbabilityDistributions,
+        PaddedMatrices, StructuredMatrices,
+        DistributionParameters, ProbabilityDistributions,
         DynamicHMC, LogDensityProblems,
         Random, VectorizedRNG, RandomNumbers
 

@@ -83,15 +83,15 @@ version = "0.1.0"
 
 [[DocStringExtensions]]
 deps = ["LibGit2", "Markdown", "Pkg", "Test"]
-git-tree-sha1 = "1df01539a1c952cef21f2d2d1c092c2bcf0177d7"
+git-tree-sha1 = "4d30e889c9f106a51ffa4791a88ffd4765bf20c3"
 uuid = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
-version = "0.6.0"
+version = "0.7.0"
 
 [[DynamicHMC]]
 deps = ["ArgCheck", "DataStructures", "DocStringExtensions", "LinearAlgebra", "LogDensityProblems", "Parameters", "Random", "Statistics", "StatsFuns", "Test", "TransformVariables"]
-git-tree-sha1 = "3ed2d8c649807bd3e77f7261cbff88f7c55f70c2"
+git-tree-sha1 = "f9c9e6e703afccb02a1179e4886c97134ff20b55"
 uuid = "bbc10e6e-7c05-544b-b16e-64fede858acb"
-version = "1.0.3"
+version = "1.0.4"
 
 [[ForwardDiff]]
 deps = ["CommonSubexpressions", "DiffResults", "DiffRules", "InteractiveUtils", "LinearAlgebra", "NaNMath", "Random", "SparseArrays", "SpecialFunctions", "StaticArrays", "Test"]
@@ -129,15 +129,15 @@ uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [[LogDensityProblems]]
 deps = ["ArgCheck", "BenchmarkTools", "DiffResults", "DocStringExtensions", "Parameters", "Pkg", "Random", "Requires", "Test", "TransformVariables"]
-git-tree-sha1 = "e43a36cdfbae36cc7b0aeee83bc24d702ce8534a"
+git-tree-sha1 = "1ce5ebd16b5026a35cbf4daec66b2433b83d0d23"
 uuid = "6fdf6af0-433a-55f7-b3ed-c6c6e0b8df7c"
-version = "0.6.0"
+version = "0.8.0"
 
 [[Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
 [[LoopVectorization]]
-deps = ["MacroTools", "SIMDPirates", "SLEEF", "VectorizationBase"]
+deps = ["MacroTools", "SIMDPirates", "SLEEFPirates", "VectorizationBase"]
 path = "/home/chriselrod/.julia/dev/LoopVectorization"
 uuid = "bdcacae8-1622-11e9-2a5c-532679323890"
 version = "0.1.0"
@@ -234,12 +234,6 @@ path = "/home/chriselrod/.julia/dev/SIMDPirates"
 uuid = "21efa798-c60a-11e8-04d3-e1a92915a26a"
 version = "0.1.0"
 
-[[SLEEF]]
-deps = ["Printf", "Test"]
-git-tree-sha1 = "9d8bdbfad44aaab6886a7c4a3c84b6c49d752d47"
-uuid = "3e6341c9-01f6-5312-b33f-f8894a2e817a"
-version = "0.5.1"
-
 [[SLEEFPirates]]
 deps = ["SIMDPirates", "VectorizationBase"]
 path = "/home/chriselrod/.julia/dev/SLEEFPirates"
@@ -281,6 +275,12 @@ deps = ["Rmath", "SpecialFunctions", "Test"]
 git-tree-sha1 = "b3a4e86aa13c732b8a8c0ba0c3d3264f55e6bb3e"
 uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
 version = "0.8.0"
+
+[[StructuredMatrices]]
+deps = ["LinearAlgebra", "LoopVectorization", "PaddedMatrices", "SIMDPirates", "SLEEFPirates", "VectorizationBase", "VectorizedRNG"]
+path = "/home/chriselrod/.julia/dev/StructuredMatrices"
+uuid = "831e5bd0-d036-11e8-2dea-c77e7dab29a6"
+version = "0.1.0"
 
 [[Test]]
 deps = ["Distributed", "InteractiveUtils", "Logging", "Random"]
@@ -325,7 +325,7 @@ version = "0.1.0"
 
 [[Zygote]]
 deps = ["DiffRules", "ForwardDiff", "IRTools", "InteractiveUtils", "LinearAlgebra", "MacroTools", "NNlib", "NaNMath", "Random", "Requires", "SpecialFunctions"]
-git-tree-sha1 = "01e87d8babc7882bffefc8d83a41e96275db23ed"
+git-tree-sha1 = "82a4e1f4d39a7b01137801facf05fbfefafe7658"
 repo-rev = "master"
 repo-url = "https://github.com/FluxML/Zygote.jl.git"
 uuid = "e88e6eb3-aa80-5325-afca-941959d7151f"
