@@ -11,6 +11,7 @@ import MacroTools: postwalk, prewalk, @capture, @q
 
 export @model, NUTS_init_tune_mcmc_default, sample_cov, sample_mean
 
+include("misc_functions.jl")
 include("special_diff_rules.jl")
 include("reverse_autodiff_passes.jl")
 include("model_macro_passes.jl")

@@ -72,3 +72,34 @@ function inv_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     nothing
 end
 SPECIAL_DIFF_RULES[:inv] = inv_diff_rule!
+
+
+function itp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    a_t = A[1]
+    a_β = A[2]
+    a_κ = A[3]
+    @assert a_t ∉ tracked_vars
+    if a_β ∈ tracked_vars
+        push!(tracked_vars, out)
+        if a_κ ∈ tracked_vars # both β and κ are tracked
+            ∂β = Symbol("###adjoint###_##∂", out, "##∂", a_β, "##")
+            ∂κ = Symbol("###adjoint###_##∂", out, "##∂", a_κ, "##")
+            push!(first_pass.args, :(($out, $∂β, $∂κ) = ProbabilityModels.∂ITPExpectedValue∂β∂κ($a_1, $a_β, $a_κ)))
+            pushfirst!(second_pass.args, :( $(Symbol("###seed###", a_κ)) += $(Symbol("###seed###", out)) * $∂κ ))
+            pushfirst!(second_pass.args, :( $(Symbol("###seed###", a_β)) += $(Symbol("###seed###", out)) * $∂β ))
+        else # only β is tracked
+            ∂β = Symbol("###adjoint###_##∂", out, "##∂", a_β, "##")
+            push!(first_pass.args, :(($out, $∂β) = ProbabilityModels.∂ITPExpectedValue∂β($a_1, $a_β, $a_κ)))
+            pushfirst!(second_pass.args, :( $(Symbol("###seed###", a_β)) += $(Symbol("###seed###", out)) * $∂β ))
+        end
+    elseif a_κ ∈ tracked_vars # only κ is tracked
+        push!(tracked_vars, out)
+        ∂κ = Symbol("###adjoint###_##∂", out, "##∂", a_κ, "##")
+        push!(first_pass.args, :(($out, $∂κ) = ProbabilityModels.∂ITPExpectedValue∂κ($a_1, $a_β, $a_κ)))
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a_κ)) += $(Symbol("###seed###", out)) * $∂κ ))
+    else # none are in tracked_vars
+        push!(first_pass.args, :($out = ProbabilityModels.∂ITPExpectedValue($a_1, $a_β, $a_κ)))
+    end
+    nothing
+end
+SPECIAL_DIFF_RULES[:ITPExpectedValue] = itp_diff_rule!

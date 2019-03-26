@@ -208,3 +208,41 @@ Bernoulli_logit_fmadd_simple(y, X, ones(4), 1.0)
 ForwardDiff.derivative(a -> Bernoulli_logit_fmadd_simple(y, X, ones(4), a), 1.0)
 ForwardDiff.gradient(b -> Bernoulli_logit_fmadd_simple(y, X, b, 1.0), ones(4))
 Normal_logeval_dropconst(βones, 0.0, 5.0, Val{(true,false,false)}())
+
+
+
+
+@model ITPModel begin
+
+    # Priors
+    ρ ~ Beta(α_ρ, β_ρ)
+    β ~ Normal(μ_β, σ_β)
+    κ ~ Gamma(α_κ, β_κ)
+    L ~ LKJ(η₀)
+
+    # Likelihood
+    μ = ITPExpectedValue(t, β, κ)
+    AR = AutoregressiveMatrixLowerCholeskyInverse(2ρ-1, δt)
+    Y ~ Normal( μ, AR, L )
+
+end
+
+# Defined model: ITPModel.
+# Unknowns: α_κ, δt, μ, μ_β, η₀, σ_β, AR, Y, β, ρ, α_ρ, κ, L, β_κ, t, β_ρ.
+
+δt = rand(23);
+t = cumsum(δt); pushfirst!(t, 0);
+δtv = ConstantFixedSizePaddedVector{23,Float64}(δt);
+tv = ConstantFixedSizePaddedVector{24,Float64}(t);
+
+β = @CFixedSize randn(16);
+κ = @CFixedSize rand(16);
+
+ℓitp = BernoulliLogitModel(
+    α_κ = , δt, μ, μ_β, η₀, σ_β, AR, Y, β, ρ, α_ρ, κ, L, β_κ, t, β_ρ
+    σ₀ = 10.0, σ₁ = 5.0, μ₀ = 0.0, μ₁ = 0.0,
+    β₀ = RealFloat, β₁ = RealVector{4},
+    y = y, x = X
+);
+
+# y =
