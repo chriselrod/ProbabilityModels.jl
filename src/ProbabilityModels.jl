@@ -5,12 +5,17 @@ using   MacroTools, DiffRules,
         PaddedMatrices, StructuredMatrices,
         DistributionParameters, ProbabilityDistributions,
         DynamicHMC, LogDensityProblems,
-        Random, VectorizedRNG, RandomNumbers
+        Random, VectorizedRNG, RandomNumbers,
+        LinearAlgebra
 
 import MacroTools: postwalk, prewalk, @capture, @q
+import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,
+                RESERVED_MULTIPLY_SEED_RESERVED, RESERVED_NMULTIPLY_SEED_RESERVED,
+                AbstractFixedSizePaddedVector
 
 export @model, NUTS_init_tune_mcmc_default, sample_cov, sample_mean
 
+include("adjoints.jl")
 include("misc_functions.jl")
 include("special_diff_rules.jl")
 include("reverse_autodiff_passes.jl")

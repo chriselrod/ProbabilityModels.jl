@@ -18,6 +18,9 @@ function determine_variables(expr)
             push!(ignored_symbols, f)
         elseif isa(x, Symbol) && x ∉ ignored_symbols
             push!(variables, x)
+        elseif @capture(x, LHS_ = RHS_)
+            push!(ignored_symbols, LHS)
+            return x
         end
         return x
     end
@@ -150,11 +153,17 @@ the `ProbabilityModels.VectorizationBase.vectorizable` parameters:
 Symbol("##θparameter##")
 Symbol("##∂θparameter##")
 
+This pass skips assignments involving the following functions:
+PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED
+PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED
+
 This pass returns the expression in a static single assignment (SSA) form.
 """
 function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
     postwalk(expr) do ex
-        if @capture(ex, a_ = b_)
+        if @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(args__)) || @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED(args__))
+            return ex
+        elseif @capture(ex, a_ = b_)
             if isa(b, Expr)
                 c = postwalk(x -> get(vars, x, x), b)
             else
@@ -234,7 +243,16 @@ it may not be able to do so for arbitrary user types.
 
 """
 function first_updates_to_assignemnts(expr, variables_input)
-    variables = Set(variables_input)
+    # Note that this function is recursive.
+    # variables_input must NOT be a Set, otherwise that set will be mutated.
+    # The idea is to call it with something other than a set.
+    # That is then used to construct a set.
+    # When called recursively, it will continue to build up said set.
+    if isa(variables_input, Set)
+        variables = variables_input
+    else
+        variables = Set(variables_input)
+    end
     ignored_symbols = Set{Symbol}()
     for i ∈ eachindex(expr.args)
         ex = expr.args[i]
@@ -247,6 +265,7 @@ function first_updates_to_assignemnts(expr, variables_input)
         lhs = ex.args[1]
         # @show lhs
         new_assignment = lhs ∉ variables
+        # @show new_assignment
         push!(variables, lhs)
         if ex.head == :(=)
             check = false
@@ -261,8 +280,13 @@ function first_updates_to_assignemnts(expr, variables_input)
                     end
                 end
             end
+            # @show lhs, new_assignment, check
             if check
-                if @capture(ex, a_ = a_ + b__ ) || @capture(ex, a_ = b__ + a_ ) || @capture(ex, a_ = b__ )
+                if @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(b__, a_) )
+                    expr.args[i] = :($a = ProbabilityModels.PaddedMatrices.RESERVED_MULTIPLY_SEED_RESERVED($(b...)))
+                elseif @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED(b__, a_) )
+                    expr.args[i] = :($a = ProbabilityModels.PaddedMatrices.RESERVED_NMULTIPLY_SEED_RESERVED($(b...)))
+                elseif @capture(ex, a_ = a_ + b__ ) || @capture(ex, a_ = b__ + a_ )# || @capture(ex, a_ = b__ )
                     expr.args[i] = :($a = $(b...))
                 elseif @capture(ex, a_ = a_ - b__ )
                     expr.args[i] = :($a = -1 * $(b...))
@@ -392,16 +416,52 @@ end
 # and ℓ the struct.
 # Additionally, support kwarg version with constrained parameterization.
 
-struct One end
-# This should be the only method I have to define.
-@inline Base.:*(a, ::One) = a
-# But I'll define this one too. Would it be better not to, so that we get errors
-# if the seed is for some reason multiplied on the right?
-@inline Base.:*(::One, a) = a
 
 types_to_vals(::Type{T}) where {T} = Val{T}()
 types_to_vals(v) = v
 extract_typeval(::Type{Val{T}}) where {T} = T
+
+function load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T, Nparam)
+    θq = quote
+        @generated function DistributionParameters.constrain($ℓ::$(model_name){$(variable_type_names...)}, $θ::$Tθ) where {$T, $Nparam, $Tθ<:ProbabilityModels.PaddedMatrices.AbstractFixedSizePaddedVector{$Nparam,$T}, $(variable_type_names...)}
+
+
+            return_partials = false
+            model_parameters = Symbol[]
+            first_pass = quote end
+            second_pass = quote end
+
+            return_expr = Expr(:tuple,)
+
+        end
+    end
+    θq_body = θq.args[end].args[end].args[end].args;
+    # push!(θq_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
+    # Now, we work on assembling the function.
+
+
+    for i ∈ eachindex(variables)
+        # push!(q_body, quote
+        #     if $(variable_type_names[i]) <: Val
+        #         push!(model_parameters, $(variables[i]))
+        #     end
+        # end)
+        load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
+        push!(θq_body, quote
+            if $(variable_type_names[i]) <: Val
+                push!(model_parameters, $(QuoteNode(variables[i])))
+                DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false)
+                push!(return_expr.args, $(QuoteNode(variables[i])))
+            # else
+            #     push!(first_pass.args, $load_data)
+            end
+        end)
+    end
+    push!(θq_body, :(push!(first_pass.args, return_expr)))
+    push!(θq_body, :(first_pass))
+
+    θq
+end
 
 function generate_generated_funcs_expressions(model_name, expr)
     # Determine the set of variables that are either parameters or data.
@@ -453,29 +513,34 @@ function generate_generated_funcs_expressions(model_name, expr)
     ℓ = gensym(:ℓ)
     θ = gensym(:θ)
     T = gensym(:T)
-
-    q = quote
-        @generated function LogDensityProblems.logdensity(::Type{$V}, $ℓ::$(model_name);
-                $([:($(variables[i])::$(variable_type_names[i]) = $ℓ.$(variables[i])) for i ∈ eachindex(variables)]...)
-                ) where {$V, $(variable_type_names...)}
-
-
-            return_partials = $V == LogDensityProblems.ValueGradient
-            model_parameters = Symbol[]
-            first_pass = quote end
-            second_pass = quote end
-
-
-        end
-    end
-    q_body = q.args[end].args[end].args[end].args;
-    push!(q_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
+    Nparam = gensym(:number_parameters)
     Tθ = gensym(:Tθ)
-    θq = quote
-        @generated function LogDensityProblems.logdensity(::Type{$V}, $ℓ::$(model_name){$(variable_type_names...)}, $θ::$Tθ) where {$V, $T, $Tθ<:AbstractArray{$T}, $(variable_type_names...)}
+
+    # q = quote
+    #     @generated function LogDensityProblems.logdensity(::Type{$V}, $ℓ::$(model_name);
+    #             $([:($(variables[i])::$(variable_type_names[i]) = $ℓ.$(variables[i])) for i ∈ eachindex(variables)]...)
+    #             ) where {$V, $(variable_type_names...)}
+    #
+    #
+    #         return_partials = $V == LogDensityProblems.ValueGradient
+    #         model_parameters = Symbol[]
+    #         first_pass = quote end
+    #         second_pass = quote end
+    #
+    #
+    #     end
+    # end
+    # q_body = q.args[end].args[end].args[end].args;
+    # push!(q_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
+
+    constrain_quote = load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T, Nparam)
+
+    # we have to split these, because of dispatch ambiguity errors
+    θq_value = quote
+        @generated function LogDensityProblems.logdensity(::Type{LogDensityProblems.Value}, $ℓ::$(model_name){$(variable_type_names...)}, $θ::$Tθ) where {$T, $Nparam, $Tθ<:ProbabilityModels.PaddedMatrices.AbstractFixedSizePaddedVector{$Nparam,$T}, $(variable_type_names...)}
 
 
-            return_partials = $V == LogDensityProblems.ValueGradient
+            return_partials = false
             model_parameters = Symbol[]
             first_pass = quote end
             second_pass = quote end
@@ -483,103 +548,127 @@ function generate_generated_funcs_expressions(model_name, expr)
 
         end
     end
-    θq_body = θq.args[end].args[end].args[end].args;
-    push!(θq_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
-    # Now, we work on assembling the function.
+    θq_valuegradient = quote
+        @generated function LogDensityProblems.logdensity(::Type{LogDensityProblems.ValueGradient}, $ℓ::$(model_name){$(variable_type_names...)}, $θ::$Tθ) where {$T, $Nparam, $Tθ<:ProbabilityModels.PaddedMatrices.AbstractFixedSizePaddedVector{$Nparam,$T}, $(variable_type_names...)}
 
 
-    for i ∈ eachindex(variables)
-        push!(q_body, quote
-            if $(variable_type_names[i]) <: Val
-                push!(model_parameters, $(variables[i]))
+            return_partials = true
+            model_parameters = Symbol[]
+            first_pass = quote end
+            second_pass = quote end
+
+
+        end
+    end
+    for (θq, return_partials) ∈ ((θq_value, false), (θq_valuegradient, true))
+
+        θq_body = θq.args[end].args[end].args[end].args;
+        push!(θq_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
+        # Now, we work on assembling the function.
+
+
+        for i ∈ eachindex(variables)
+            # push!(q_body, quote
+            #     if $(variable_type_names[i]) <: Val
+            #         push!(model_parameters, $(variables[i]))
+            #     end
+            # end)
+            load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
+            push!(θq_body, quote
+                if $(variable_type_names[i]) <: Val
+                    push!(model_parameters, $(QuoteNode(variables[i])))
+                    DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), $return_partials)
+                else
+                    push!(first_pass.args, $load_data)
+                end
+            end)
+        end
+
+        if return_partials
+            # qprocessing = quote
+            #     second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
+            #     ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+            #     # variable renaming rather than incrementing makes initiazing
+            #     # target to an integer okay.
+            #     expr_out = quote
+            #         # target = 0
+            #         $first_pass
+            #         $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
+            #         $second_pass
+            #         (
+            #             $(name_dict[:target]),
+            #             $(Expr(:tuple, [Symbol("###seed###", mp) for mp ∈ model_parameters]...))
+            #         )
+            #     end
+            # end
+            processing = quote
+                second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
+                TLθ = ProbabilityModels.PaddedMatrices.type_length($θ) # This refers to the type of the input
+                ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+                expr_out = quote
+                    # target = zero($T_sym)
+                    $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
+                    $first_pass
+                    $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
+                    $(Symbol("##∂θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
+                    $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
+                    $second_pass
+
+                    $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
+                    LogDensityProblems.ValueGradient(
+                        isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
+                        $(Symbol("##∂θparameter##mconst"))
+                    )
+                end
             end
-        end)
-        load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
+        else
+            # qprocessing = quote
+            #     ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
+            #     expr_out = quote
+            #         # target = 0
+            #         $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
+            #         $first_pass
+            #         $(name_dict[:target])
+            #     end
+            # end
+            processing = quote
+                ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
+                expr_out = quote
+                    # target = zero($T_sym)
+                    $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
+                    $first_pass
+                    LogDensityProblems.Value( $(name_dict[:target]) )
+                end
+            end
+        end
+
+        # push!(q_body, quote
+        #     tracked_vars = Set(model_parameters)
+        #     first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
+        #     expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
+        #     θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
+        #     $qprocessing
+        #     quote
+        #         @fastmath @inbounds begin
+        #             $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
+        #         end
+        #     end
+        # end)
         push!(θq_body, quote
-            if $(variable_type_names[i]) <: Val
-                push!(model_parameters, $(QuoteNode(variables[i])))
-                DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), return_partials)
-            else
-                push!(first_pass.args, $load_data)
+            tracked_vars = Set(model_parameters)
+            first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
+            expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
+            θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
+            T_sym = $(QuoteNode(T))
+            $processing
+            quote
+                # @fastmath @inbounds begin
+                    @inbounds begin
+                    $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
+                end
             end
         end)
     end
-    push!(q_body, quote
-        tracked_vars = Set(model_parameters)
-        first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
-        expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
-        θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
-        if return_partials
-            second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
-            ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
-            # variable renaming rather than incrementing makes initiazing
-            # target to an integer okay.
-            expr_out = quote
-                # target = 0
-                $first_pass
-                $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
-                $second_pass
-                (
-                    $(name_dict[:target]),
-                    $(Expr(:tuple, [Symbol("###seed###", mp) for mp ∈ model_parameters]...))
-                )
-            end
-        else
-            ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
-            expr_out = quote
-                # target = 0
-                $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
-                $first_pass
-                $(name_dict[:target])
-            end
-        end
-        quote
-            @fastmath @inbounds begin
-                $(ProbabilityModels.first_updates_to_assignemnts(expr_out))
-            end
-        end
-    end)
-    push!(θq_body, quote
-        tracked_vars = Set(model_parameters)
-        first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
-        expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
-        θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
-        T_sym = $(QuoteNode(T))
-        if return_partials
-            second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
-            TLθ = ProbabilityModels.PaddedMatrices.type_length($θ) # This refers to the type of the input
-            ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
-            expr_out = quote
-                # target = zero($T_sym)
-                $(Symbol("##θparameter##")) = ProbabilityModels.ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
-                $first_pass
-                $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
-                $(Symbol("##∂θparameter##")) = ProbabilityModels.ProbabilityModels.VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
-                $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
-                $second_pass
-
-                $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
-                LogDensityProblems.ValueGradient(
-                    isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
-                    $(Symbol("##∂θparameter##mconst"))
-                )
-            end
-        else
-            ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
-            expr_out = quote
-                # target = zero($T_sym)
-                $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
-                $first_pass
-                LogDensityProblems.Value( $(name_dict[:target]) )
-            end
-        end
-        quote
-            @fastmath @inbounds begin
-                # @inbounds begin
-                $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
-            end
-        end
-    end)
 
 
     # Now, we would like to apply
@@ -598,18 +687,18 @@ function generate_generated_funcs_expressions(model_name, expr)
     end
 
 
-    struct_quote, struct_kwarg_quote, q, θq, dim_q, variables
+    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, dim_q, variables
 end
 
 macro model(model_name, expr)
-    struct_quote, struct_kwarg_quote, q, θq, dim_q, variables = generate_generated_funcs_expressions(model_name, expr)
+    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_q, dim_q, variables = generate_generated_funcs_expressions(model_name, expr)
 
     printstring = """
         Defined model: $model_name.
         Unknowns: $(variables[1])$([", " * string(variables[i]) for i ∈ 2:length(variables)]...).
     """
     esc(quote
-        $struct_quote; $struct_kwarg_quote; $θq; $dim_q;
+        $struct_quote; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $constrain_q; $dim_q;
         println($printstring)
     end)
 end

@@ -65,7 +65,7 @@ end
     quote
         $(Expr(:meta,:inline))
         loggrad = κ.Minv * pₘ
-        SIMDPirates.vfma(ϵ, loggrad, q)
+        SIMDPirates.vmuladd(ϵ, loggrad, q)
     end
 end
 
@@ -73,10 +73,10 @@ function DynamicHMC.leapfrog(H::DynamicHMC.Hamiltonian{Tℓ,Tκ}, z::DynamicHMC.
     DynamicHMC.@unpack ℓ, κ = H
     DynamicHMC.@unpack p, q, ℓq = z
     ϵₕ = ϵ/2
-    pₘ = SIMDPirates.vfma(ϵₕ, ℓq.gradient, p)
+    pₘ = SIMDPirates.vmuladd(ϵₕ, ℓq.gradient, p)
     q′ = calc_q′(q, ϵ, κ, pₘ) #SIMDPirates.vfnmadd(ϵ, loggradient
     ℓq′ = LogDensityProblems.logdensity(LogDensityProblems.ValueGradient, ℓ, q′)
-    p′ = SIMDPirates.vfma(ϵₕ, ℓq′.gradient, pₘ)
+    p′ = SIMDPirates.vmuladd(ϵₕ, ℓq′.gradient, pₘ)
     DynamicHMC.PhasePoint(q′, p′, ℓq′)
 end
 
@@ -126,7 +126,7 @@ function sample_crossprod_quote(N,T,Ptrunc,Pfull,stride)
     if num_reps > 1
         push!(q.args, quote
             for pmax ∈ 1:$(num_reps-1)
-                $(mul_block_nt(V, stride, stride, m_rep, N, piter, :plow, :vA, :vA, Pfull))
+                $(mul_block_nt(V, W, stride, stride, m_rep, N, piter, :plow, :vA, :vA, Pfull))
                 $(store_block(W, Pfull, m_rep, piter, :plow))
                 plow += $piter
             end
@@ -134,7 +134,7 @@ function sample_crossprod_quote(N,T,Ptrunc,Pfull,stride)
     end
     plow = piter * (num_reps-1)
     prem = Ptrunc - plow
-    prem > 0 && push!(q.args, PaddedMatrices.mul_block_nt(V, stride, stride, m_rep, N, prem, plow, :vA, :vA, Pfull))
+    prem > 0 && push!(q.args, PaddedMatrices.mul_block_nt(V, W, stride, stride, m_rep, N, prem, plow, :vA, :vA, Pfull))
     prem > 0 && push!(q.args, PaddedMatrices.store_block(W, Pfull, m_rep, prem, plow))
     # push!(q.args,  :(ConstantFixedSizePaddedMatrix( out )) )
     q

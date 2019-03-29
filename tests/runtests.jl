@@ -1,5 +1,5 @@
 
-using MacroTools, PaddedMatrices, DiffRules, VectorizationBase, SLEEF
+using MacroTools, PaddedMatrices, DiffRules, VectorizationBase, SLEEFPirates
 using MacroTools: striplines, @capture, prewalk, postwalk, @q
 
 using LogDensityProblems, DynamicHMC, VectorizedRNG
@@ -19,8 +19,68 @@ includet("/home/chriselrod/Documents/progwork/julia/autodiff_work/model_macro_pa
 # q2 = translate_sampling_statements(q)
 # q3 = flatten_expression(q2)
 
-varnames = Set([:β₀,  :β₁])
-first_updates_to_assignemnts(q3, varnames)
+model_parameters = Set([:β₀,  :β₁])
+ProbabilityModels.first_updates_to_assignemnts(q3, varnames)
+
+q = @q begin
+    β₀ ~ Normal(μ₀, σ₀)
+    β₁ ~ Normal(μ₁, σ₁)
+    y ~ Bernoulli_logit(β₀ + x * β₁)
+end
+model_name = :BernoulliLogitModel
+variable_set = ProbabilityModels.determine_variables(q)
+variables = [v for v ∈ variable_set] # ensure order is constant
+variable_type_names = [Symbol("##Type##", v) for v ∈ variables]
+struct_quote = quote
+    struct $model_name{$(variable_type_names...)} <: LogDensityProblems.AbstractLogDensityProblem
+        $([:( $(variables[i])::$(variable_type_names[i]) ) for i ∈ eachindex(variables)]...)
+    end
+end
+struct_kwarg_quote = quote
+    function $model_name(; $(variables...))
+        $model_name($([:(ProbabilityModels.types_to_vals($v)) for v ∈ variables]...))
+    end
+end
+
+# Translate the sampling statements, and then flatten the expression to remove nesting.
+expr = ProbabilityModels.translate_sampling_statements(q) |>
+            ProbabilityModels.flatten_expression
+first_pass = quote end
+second_pass = quote end
+tracked_vars = Set(model_parameters)
+first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
+expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
+
+
+θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
+
+second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
+ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+# variable renaming rather than incrementing makes initiazing
+# target to an integer okay.
+expr_out = quote
+    # target = 0
+    $first_pass
+    $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
+    $second_pass
+    (
+        $(name_dict[:target]),
+        $(Expr(:tuple, [Symbol("###seed###", mp) for mp ∈ model_parameters]...))
+    )
+end
+
+
+
+
+using ProbabilityModels, MacroTools, PaddedMatrices, DiffRules, VectorizationBase, SLEEFPirates
+using DistributionParameters
+using MacroTools: striplines, @capture, prewalk, postwalk, @q
+
+using LogDensityProblems, DynamicHMC, VectorizedRNG
+
+
+# model_parameters = Set([:β₀,  :β₁])
+# ProbabilityModels.first_updates_to_assignemnts(q3, varnames)
 
 q = @q begin
     β₀ ~ Normal(μ₀, σ₀)
@@ -28,27 +88,42 @@ q = @q begin
     y ~ Bernoulli_logit(β₀ + x * β₁)
 end
 
-q2 = translate_sampling_statements(q)
-expr = flatten_expression(q2)
+
+# variable_set = ProbabilityModels.determine_variables(expr)
+# variables = [v for v ∈ variable_set] # ensure order is constant
+# variable_type_names = [Symbol("##Type##", v) for v ∈ variables]
+
+
+q2 = ProbabilityModels.translate_sampling_statements(q)
+expr = ProbabilityModels.flatten_expression(q2)
 return_partials = true
 model_parameters = Symbol[]
 first_pass = quote end
 second_pass = quote end
 
 push!(model_parameters, :β₀)
-load_parameter(first_pass.args, second_pass.args, :β₀, RealFloat, return_partials)
+DistributionParameters.load_parameter(first_pass.args, second_pass.args, :β₀, RealFloat, return_partials)
 push!(model_parameters, :β₁)
-load_parameter(first_pass.args, second_pass.args, :β₁, RealVector{4,Float64}, return_partials)
+DistributionParameters.load_parameter(first_pass.args, second_pass.args, :β₁, RealVector{4,Float64}, return_partials)
 
 tracked_vars = Set(model_parameters)
-first_pass, name_dict = rename_assignments(first_pass)
-expr, name_dict = rename_assignments(expr, name_dict)
+first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
+expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
 
-second_pass, name_dict = rename_assignments(second_pass, name_dict)
+second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
 TLθ = 5 #type_length($θ) # This refers to the type of the input
-reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
 first_pass
 second_pass
+
+combined_q = quote
+    $first_pass
+    $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
+    $second_pass
+end;
+
+ProbabilityModels.first_updates_to_assignemnts(combined_q, model_parameters)
+
 
 T_sym = gensym(:T); θ_sym = gensym(:θ);
 expr_out = quote
@@ -211,38 +286,89 @@ Normal_logeval_dropconst(βones, 0.0, 5.0, Val{(true,false,false)}())
 
 
 
+using ProbabilityModels, LogDensityProblems, SLEEFPirates, SIMDPirates, StructuredMatrices, ScatteredArrays, PaddedMatrices
 
 @model ITPModel begin
 
-    # Priors
-    ρ ~ Beta(α_ρ, β_ρ)
-    β ~ Normal(μ_β, σ_β)
-    κ ~ Gamma(α_κ, β_κ)
+    # Non-hierarchical Priors
+    ρ ~ Beta() # α = 1, β = 1
+    κ ~ Gamma(αₖ, βₖ)
+    θ ~ Normal(10)
     L ~ LKJ(η₀)
 
+    # Hierarchical Priors.
+    # h subscript, for highest in the hierarhcy.
+    μₕ₁ ~ Normal(5) # μ = 0
+    μₕ₂ ~ Normal(5) # μ = 0
+    σₕ ~ Normal(10) # μ = 0
+    # Raw μs; non-cenetered parameterization
+    μᵣ₁ ~ Normal() # μ = 0, σ = 1
+    μᵣ₂ ~ Normal() # μ = 0, σ = 1
+    # Center the μs
+    μᵦ₁ = HierarchicalCentering(μᵣ₁, μₕ₁, σₕ)
+    μᵦ₂ = HierarchicalCentering(μᵣ₂, μₕ₂, σₕ)
+    σᵦ ~ Normal(10) # μ = 0
+    # Raw βs; non-cenetered parameterization
+    βᵣ₁ ~ Normal()
+    βᵣ₂ ~ Normal()
+    # Center the βs.
+    β₁ = HierarchicalCentering(βᵣ₁, μᵦ₁, σᵦ, domains)
+    β₂ = HierarchicalCentering(βᵣ₂, μᵦ₂, σᵦ, domains)
+
+    U = inv′(L)
+
     # Likelihood
-    μ = ITPExpectedValue(t, β, κ)
+    μ₁ = ITPExpectedValue(t, β₁, κ, θ)
+    μ₂ = ITPExpectedValue(t, β₂, κ, θ)
     AR = AutoregressiveMatrixLowerCholeskyInverse(2ρ-1, δt)
-    Y ~ Normal( μ, AR, L )
+    Y₁ ~ Normal(μ₁, AR, U)
+    Y₂ ~ Normal(μ₂, AR, U)
 
 end
 
 # Defined model: ITPModel.
-# Unknowns: α_κ, δt, μ, μ_β, η₀, σ_β, AR, Y, β, ρ, α_ρ, κ, L, β_κ, t, β_ρ.
+# Unknowns: βᵨ, domains, μₕ₂, δt, μᵣ₁, μ, βₖ, η₀, αₖ, σᵦ, Y, μᵣ₂, αᵨ, ρ, σₕ, μₕ₁, κ, L, βᵣ₂, t, βᵣ₁, θ.
 
-δt = rand(23);
-t = cumsum(δt); pushfirst!(t, 0);
-δtv = ConstantFixedSizePaddedVector{23,Float64}(δt);
-tv = ConstantFixedSizePaddedVector{24,Float64}(t);
+domains = ProbabilityModels.Domains(3,4,4,5);
+
+ρ = 0.7;
+κ = 0.25 * (@Constant randexp(16));
+θ = 10.0 * (@Constant randn(16));
+L = (@Constant randn(16,24)) |> x -> x * x' |> PaddedMatrices.chol
+m01 = @Constant randn(4); # placebo
+m02 = 2.0 + @Constant randn(4); #treatment
+b1 = vcat(ntuple(i -> (@Constant randn(domains[i])) + m01[i], Val(4))...); # placebo
+b2 = vcat(ntuple(i -> (@Constant randn(domains[i])) + m02[i], Val(4))...); # treatment
+δt = @Constant rand(23); lastt = Ref(0.0);
+t = ConstantFixedSizePaddedVector{24,Float64}(ntuple(i -> i == 1 ? 0.0 : lastt[] += δt[i-1], Val(24)));
+mu1 = ProbabilityModels.ITPExpectedValue(t, b1, κ, θ)
+mu2 = ProbabilityModels.ITPExpectedValue(t, b2, κ, θ)
+
+ARchol = PaddedMatrices.chol(ConstantFixedSizePaddedMatrix(StructuredMatrices.AutoregressiveMatrix(ρ, δt)));
+
+Y1 = [ARchol * (@Constant randn(24, 16)) * L' + mu1 for n in 1:120];
+Y2 = [ARchol * (@Constant randn(24, 16)) * L' + mu2 for n in 1:120];
+Y1c = ChunkedArray(Y1);
+Y2c = ChunkedArray(Y1);
+
+μₕ₁ = @Constant randn(4); # placebo
+μₕ₂ = 2.0 + @Constant randn(4); #treatment
+β₁ = vcat(ntuple(i -> (@Constant randn(domains[i])) + μₕ₁[i], Val(4))...); # placebo
+β₂ = vcat(ntuple(i -> (@Constant randn(domains[i])) + μₕ₂[i], Val(4))...); # treatment
+
+δt = @Constant rand(23); lastt = Ref(0.0);
+t = ConstantFixedSizePaddedVector{24,Float64}(ntuple(i -> i == 1 ? 0.0 : lastt[] += δt[i-1], Val(24)));
+
+μ₁ = ITPExpectedValue(t, β₁, κ)
+μ₂ = ITPExpectedValue(t, β₂, κ)
 
 β = @CFixedSize randn(16);
-κ = @CFixedSize rand(16);
+κ = @CFixedSize randexp(16);
+
+μ = ProbabilityModels.ITPExpectedValue(t, β, κ)
 
 ℓitp = BernoulliLogitModel(
-    α_κ = , δt, μ, μ_β, η₀, σ_β, AR, Y, β, ρ, α_ρ, κ, L, β_κ, t, β_ρ
-    σ₀ = 10.0, σ₁ = 5.0, μ₀ = 0.0, μ₁ = 0.0,
-    β₀ = RealFloat, β₁ = RealVector{4},
-    y = y, x = X
+    α_κ = 1.0, δt = δtv, μ_β, η₀, σ_β, Y, β, ρ, α_ρ, κ, L, β_κ, t, β_ρ
 );
 
 # y =
