@@ -87,6 +87,37 @@ function inv′_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
 end
 SPECIAL_DIFF_RULES[:inv′] = inv′_diff_rule!
 
+function mul_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    @assert length(A) == 2
+    a1 = A[1]
+    a2 = A[2]
+    push!(first_pass.args, :($out = $a1 * $a2))
+    if (a1 ∈ tracked_vars) || (a2 ∈ tracked_vars)
+        push!(tracked_vars, out)
+    else
+        return
+    end
+    adjout = Symbol("###seed###", out)
+    seed2 = Symbol("###seed###", a2)
+    track_tup = Expr(:tuple,)
+    return_expr = Expr(:tuple,)
+    for i ∈ 1:2
+        a = A[i]
+        if a ∈ tracked_vars
+            seeda = Symbol("###seed###", a)
+            ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
+            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($adjout, $∂, $seeda)))
+            push!(return_expr.args, ∂)
+            push!(track_tup.args, true)
+        else
+            push!(track_tup.args, false)
+        end
+    end
+    pushfirst!(second_pass.args, :($(ProbabilityDistributions.return_expression(return_expr)) = ∂mul($a1, $a2, Val{$track_tup}())))
+    nothing
+end
+SPECIAL_DIFF_RULES[:*] = mul_diff_rule!
+
 
 function itp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     ∂tup = Expr(:tuple, out)
@@ -108,7 +139,7 @@ function itp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         end
     end
     track_out && push!(tracked_vars, out)
-    push!(first_pass.args, :( $(ProbabilityModels.return_expression(∂tup)) = ProbabilityModels.∂ITPExpectedValue($(A[2:end]...), Val{$track_tup}())))
+    push!(first_pass.args, :( $(ProbabilityDistributions.return_expression(∂tup)) = ProbabilityModels.∂ITPExpectedValue($(A[2:end]...), Val{$track_tup}())))
     nothing
 end
 SPECIAL_DIFF_RULES[:ITPExpectedValue] = itp_diff_rule!
@@ -134,3 +165,16 @@ function hierarchical_centering_diff_rule!(first_pass, second_pass, tracked_vars
     nothing
 end
 SPECIAL_DIFF_RULES[:HierarchicalCentering] = hierarchical_centering_diff_rule!
+
+function diagonal_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    @assert length(A) == 1
+    a = A[1]
+    if a ∈ tracked_vars
+        push!(tracked_vars, out)
+        seeda = Symbol("###seed###", a)
+        seedout = Symbol("###seed###", out)
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $seeda )))
+    end
+    push!(first_pass.args, :($out = LinearAlgebra.Diagonal($a)))
+end
+SPECIAL_DIFF_RULES[:Diagonal] = diagonal_diff_rule!

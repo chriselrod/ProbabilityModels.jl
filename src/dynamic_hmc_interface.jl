@@ -80,6 +80,49 @@ function DynamicHMC.leapfrog(H::DynamicHMC.Hamiltonian{Tℓ,Tκ}, z::DynamicHMC.
     DynamicHMC.PhasePoint(q′, p′, ℓq′)
 end
 
+function DynamicHMC.mcmc(sampler::NUTS{Tv,Tf}, N::Int) where {M,T,Tv <: AbstractConstantFixedSizePaddedVector{M,T},Tf}
+    rng = sampler.rng
+    H = sampler.H
+    q = sampler.q
+    max_depth = sampler.max_depth
+    report = sampler.report
+    sample = Vector{NUTS_Transition{Tv,Tf}}(undef, N)
+    psample = Base.unsafe_convert(Ptr{T}, pointer(sample))
+    DynamicHMC.start_progress!(report, "MCMC"; total_count = N)
+    for n ∈ 1:N
+        # figure out handling of "q" / last transition versus current transition and assignment...
+        q = NUTS_transition!(psample, rng, H, q, ϵ, max_depth)
+        DynamicHMC.report!(report, n)
+        psample += sizeof(NUTS_Transition{Tv,Tf})
+    end
+    DynamicHMC.end_progress!(report)
+    smaple
+end
+function mcmc_adapting_ϵ!(sampler::NUTS{Tv,Tf}, N::Int, A_params, A) where {M,T,Tv <: AbstractConstantFixedSizePaddedVector{M,T},Tf}
+    rng = sampler.rng
+    H = sampler.H
+    q = sampler.q
+    max_depth = sampler.max_depth
+    report = sampler.report
+    sample = Vector{NUTS_Transition{Tv,Tf}}(undef, N)
+    psample = Base.unsafe_convert(Ptr{T}, pointer(sample))
+    DynamicHMC.start_progress!(report, "MCMC, adapting ϵ"; total_count = N)
+    for n ∈ 1:N
+        NUTS_transition!(psample, rng, H, q, ϵ, max_depth)
+        A = DynamicHMC.adapt_stepsize(A_params, A, trans.a)
+        DynamicHMC.report!(report, n)
+        psample += sizeof(NUTS_Transition{Tv,Tf})
+    end
+    DynamicHMC.end_progress!(report)
+    sample, A
+end
+
+function NUTS_transition!(rng::ScalarVectorPCG, H, q, ϵ, max_depth, args...)
+
+
+
+end
+
 @inline function Random.rand(rng::VectorizedRNG.PCG,
             κ::DynamicHMC.GaussianKE{Diagonal{T,ConstantFixedSizePaddedVector{N,T,L,L}},Diagonal{T,ConstantFixedSizePaddedVector{N,T,L,L}}},
             q = nothing) where {T,N,L}

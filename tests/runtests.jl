@@ -286,15 +286,20 @@ Normal_logeval_dropconst(βones, 0.0, 5.0, Val{(true,false,false)}())
 
 
 
-using ProbabilityModels, LogDensityProblems, SLEEFPirates, SIMDPirates, StructuredMatrices, ScatteredArrays, PaddedMatrices
+using ProbabilityModels, DistributionParameters, ProbabilityDistributions,
+    LoopVectorization,
+    LogDensityProblems, SLEEFPirates, SIMDPirates, StructuredMatrices, ScatteredArrays, PaddedMatrices
+using DistributionParameters: LKJ_Correlation_Cholesky, RealFloat, PositiveFloat, UnitFloat, RealVector, PositiveVector
+using ProbabilityModels: ITPExpectedValue, ∂ITPExpectedValue
 
 @model ITPModel begin
 
     # Non-hierarchical Priors
-    ρ ~ Beta() # α = 1, β = 1
-    κ ~ Gamma(αₖ, βₖ)
+    ρ ~ Beta(2, 2)
+    κ ~ Gamma(0.1, 0.1) # μ = 1, σ² = 10
+    σ ~ Gamma(0.5, 0.1) # μ = 5, σ² = 50
     θ ~ Normal(10)
-    L ~ LKJ(η₀)
+    L ~ LKJ(2.0)
 
     # Hierarchical Priors.
     # h subscript, for highest in the hierarhcy.
@@ -315,7 +320,7 @@ using ProbabilityModels, LogDensityProblems, SLEEFPirates, SIMDPirates, Structur
     β₁ = HierarchicalCentering(βᵣ₁, μᵦ₁, σᵦ, domains)
     β₂ = HierarchicalCentering(βᵣ₂, μᵦ₂, σᵦ, domains)
 
-    U = inv′(L)
+    U = inv′(Diagonal(σ) * L)
 
     # Likelihood
     μ₁ = ITPExpectedValue(t, β₁, κ, θ)
@@ -326,30 +331,52 @@ using ProbabilityModels, LogDensityProblems, SLEEFPirates, SIMDPirates, Structur
 
 end
 
-# Defined model: ITPModel.
-# Unknowns: βᵨ, domains, μₕ₂, δt, μᵣ₁, μ, βₖ, η₀, αₖ, σᵦ, Y, μᵣ₂, αᵨ, ρ, σₕ, μₕ₁, κ, L, βᵣ₂, t, βᵣ₁, θ.
+#     Defined model: ITPModel.
+#     Unknowns: Y₂, domains, μₕ₂, δt, μᵣ₁, βₖ, η₀, αₖ, σᵦ, θ, μᵣ₂, ρ, σₕ, μₕ₁, κ, L, Y₁, βᵣ₂, t, βᵣ₁.
+
+
 
 domains = ProbabilityModels.Domains(3,4,4,5);
+M = 24; N = sum(domains); Num_domains = length(domains);
 
 ρ = 0.7;
-κ = 0.25 * (@Constant randexp(16));
-θ = 10.0 * (@Constant randn(16));
-L = (@Constant randn(16,24)) |> x -> x * x' |> PaddedMatrices.chol
-m01 = @Constant randn(4); # placebo
-m02 = 2.0 + @Constant randn(4); #treatment
-b1 = vcat(ntuple(i -> (@Constant randn(domains[i])) + m01[i], Val(4))...); # placebo
-b2 = vcat(ntuple(i -> (@Constant randn(domains[i])) + m02[i], Val(4))...); # treatment
-δt = @Constant rand(23); lastt = Ref(0.0);
-t = ConstantFixedSizePaddedVector{24,Float64}(ntuple(i -> i == 1 ? 0.0 : lastt[] += δt[i-1], Val(24)));
-mu1 = ProbabilityModels.ITPExpectedValue(t, b1, κ, θ)
-mu2 = ProbabilityModels.ITPExpectedValue(t, b2, κ, θ)
+κ = 0.25 * (@Constant randexp(N));
+θ = 10.0 * (@Constant randn(N));
+L = (@Constant randn(N,2N)) |> x -> x * x' |> PaddedMatrices.chol
+m01 = @Constant randn(Num_domains); # placebo
+m02 = 2.0 + @Constant randn(Num_domains); #treatment
+b1 = vcat(ntuple(i -> (@Constant randn(domains[i])) + m01[i], Val(Num_domains))...); # placebo
+b2 = vcat(ntuple(i -> (@Constant randn(domains[i])) + m02[i], Val(Num_domains))...); # treatment
+
+δt = @Constant rand(M-1); lastt = Ref(0.0);
+t = ConstantFixedSizePaddedVector{24,Float64}(ntuple(i -> i == 1 ? 0.0 : lastt[] += δt[i-1], Val(M)));
+mu1 = ProbabilityModels.ITPExpectedValue(t, b1, κ, θ);
+mu2 = ProbabilityModels.ITPExpectedValue(t, b2, κ, θ);
 
 ARchol = PaddedMatrices.chol(ConstantFixedSizePaddedMatrix(StructuredMatrices.AutoregressiveMatrix(ρ, δt)));
 
-Y1 = [ARchol * (@Constant randn(24, 16)) * L' + mu1 for n in 1:120];
-Y2 = [ARchol * (@Constant randn(24, 16)) * L' + mu2 for n in 1:120];
+Y1 = [ARchol * (@Constant randn(M, N)) * L' + mu1 for n in 1:120];
+Y2 = [ARchol * (@Constant randn(M, N)) * L' + mu2 for n in 1:120];
 Y1c = ChunkedArray(Y1);
 Y2c = ChunkedArray(Y1);
+
+ℓ = ITPModel(
+    domains = domains, Y₁ = Y1c, Y₂ = Y2c, t = t, δt = δt,
+    L = LKJ_Correlation_Cholesky{N}, ρ = UnitFloat,
+    κ = PositiveVector{N}, θ = RealVector{N},
+    μₕ₁ = RealFloat, μₕ₂ = RealFloat,
+    μᵣ₁ = RealVector{Num_domains}, μᵣ₂ = RealVector{Num_domains},
+    βᵣ₁ = RealVector{N}, βᵣ₂ = RealVector{N},
+    σᵦ = PositiveFloat, σₕ = PositiveFloat,
+    σ = PositiveVector{N}
+    #η₀ = 2.0, αₖ = 0.1, βₖ = 0.1
+);
+dimension(ℓ)
+a = fill(1.0, dimension(ℓ));
+logdensity(LogDensityProblems.Value, ℓ, a)
+logdensity(LogDensityProblems.ValueGradient, ℓ, a)
+
+
 
 μₕ₁ = @Constant randn(4); # placebo
 μₕ₂ = 2.0 + @Constant randn(4); #treatment

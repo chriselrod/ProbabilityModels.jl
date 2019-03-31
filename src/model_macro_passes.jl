@@ -32,20 +32,20 @@ function translate_sampling_statements(expr)
         if @capture(x, y_ ~ f_(θ__))
             if f ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
                 if @capture(x, y_ ~ f_(α_ + X_ * β_ , θ__))
-                    return :(target = target + $(Symbol(f,:_fmadd_logeval_dropconst))($y, $X, $β, $α, $(θ...)))
+                    return :(target = target + $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...)))
                 elseif @capture(x, y_ ~ f_(X_ * β_ + α_, θ__))
-                    return :(target = target + $(Symbol(f,:_fmadd_logeval_dropconst))($y, $X, $β, $α, $(θ...)))
+                    return :(target = target + $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...)))
                 elseif @capture(x, y_ ~ f_(α_ - X_ * β_, θ__))
-                    return :(target = target + $(Symbol(f,:_fnmadd_logeval_dropconst))($y, $X, $β, $α, $(θ...)))
+                    return :(target = target + $(Symbol(f,:_fnmadd))($y, $X, $β, $α, $(θ...)))
                 elseif @capture(x, y_ ~ f_(X_ * β_ - α_, θ__))
-                    return :(target = target + $(Symbol(f,:_fmsub_logeval_dropconst))($y, $X, $β, $α, $(θ...)))
+                    return :(target = target + $(Symbol(f,:_fmsub))($y, $X, $β, $α, $(θ...)))
                 elseif @capture(x, y_ ~ f_(- X_ * β_ - α_, θ__))
-                    return :(target = target + $(Symbol(f,:_fnmsub_logeval_dropconst))($y, $X, $β, $α, $(θ...)))
+                    return :(target = target + $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...)))
                 elseif @capture(x, y_ ~ f_( - α_ - X_ * β_, θ__))
-                    return :(target = target + $(Symbol(f,:_fnmsub_logeval_dropconst))($y, $X, $β, $α, $(θ...)))
+                    return :(target = target + $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...)))
                 end
             end
-            return :(target = target + $(Symbol(f,:_logeval_dropconst))($y, $(θ...)))
+            return :(target = target + $f($y, $(θ...)))
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
         else
@@ -366,7 +366,15 @@ function constant_drop_pass!(first_pass, expr, tracked_vars)
                 push!(first_pass.args, :($out = ProbabilityModels.ProbabilityDistributions.$f($(A...), Val{$track_tup}())))
                 # push!(first_pass.args, :(@show $(A...)))
                 # push!(first_pass.args, :(@show $out))
+            # elseif f ∈ keys(SPECIAL_DIFF_RULES)
+
             else
+                for a ∈ A
+                    if a ∈ tracked_vars
+                        push!(tracked_vars, out)
+                        break
+                    end
+                end
                 push!(first_pass.args, x)
             end
         else
@@ -377,53 +385,13 @@ function constant_drop_pass!(first_pass, expr, tracked_vars)
 end
 
 
-
-# vars2 = Set{Symbol}();
-# push!(vars2, :a);
-# push!(vars2, :b);
-# sum_expr = :(Expr(:call, :+, $(QuoteNode.(vars2)...)))
-# qgentest = quote
-#     @generated function bar(; $(vars2...))
-#     # function bar(; $(vars2...))
-#         $sum_expr
-#     end
-# end
-# bar(a = 3, b = 5) # 8
-#
-# sum_expr_2 = Expr(:call, :+, vars2...)
-# qgentest2 = quote
-#     @generated function bar2(; $(vars2...)) end
-# end
-# qgentest2_body = qgentest2.args[end].args[end].args[end].args;
-# push!(qgentest2_body, :(expr = $(Expr(:quote, sum_expr_2))))
-# push!(qgentest2_body, :expr)
-#
-#
-# @generated function foo(a, b)
-#     @show a <: Type
-#     @show b <: Type
-#     :(a, b)
-# end
-# foo(Array{Float64}, 4) # true, false
-
-# So, the plan is to define a struct, defining the problem.
-# This struct will have a field per variable.
-# It will implement the LogDensityProblems interface, with methods:
-#
-# logdensity(resulttype, ℓ, x)
-# for resulttype = Value, and ValueGradient
-# x are the unconstrained parameters
-# and ℓ the struct.
-# Additionally, support kwarg version with constrained parameterization.
-
-
 types_to_vals(::Type{T}) where {T} = Val{T}()
 types_to_vals(v) = v
 extract_typeval(::Type{Val{T}}) where {T} = T
 
 function load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T, Nparam)
     θq = quote
-        @generated function DistributionParameters.constrain($ℓ::$(model_name){$(variable_type_names...)}, $θ::$Tθ) where {$T, $Nparam, $Tθ<:ProbabilityModels.PaddedMatrices.AbstractFixedSizePaddedVector{$Nparam,$T}, $(variable_type_names...)}
+        @generated function ProbabilityModels.DistributionParameters.constrain($ℓ::$(model_name){$(variable_type_names...)}, $θ::$Tθ) where {$T, $Nparam, $Tθ<:ProbabilityModels.PaddedMatrices.AbstractFixedSizePaddedVector{$Nparam,$T}, $(variable_type_names...)}
 
 
             return_partials = false
@@ -450,7 +418,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
         push!(θq_body, quote
             if $(variable_type_names[i]) <: Val
                 push!(model_parameters, $(QuoteNode(variables[i])))
-                DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false)
+                ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false)
                 push!(return_expr.args, $(QuoteNode(variables[i])))
             # else
             #     push!(first_pass.args, $load_data)
@@ -577,7 +545,7 @@ function generate_generated_funcs_expressions(model_name, expr)
             push!(θq_body, quote
                 if $(variable_type_names[i]) <: Val
                     push!(model_parameters, $(QuoteNode(variables[i])))
-                    DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), $return_partials)
+                    ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), $return_partials)
                 else
                     push!(first_pass.args, $load_data)
                 end
@@ -661,13 +629,17 @@ function generate_generated_funcs_expressions(model_name, expr)
             θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
             T_sym = $(QuoteNode(T))
             $processing
-            quote
+            final_quote = quote
                 # @fastmath @inbounds begin
                     @inbounds begin
                     $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
                 end
             end
+            # display(final_quote)
+            final_quote
         end)
+
+        # push!(θq_body, display())
     end
 
 
@@ -679,7 +651,7 @@ function generate_generated_funcs_expressions(model_name, expr)
             dim = 0
             $([quote
                 if $v <: Val
-                    dim += ProbabilityModels.PaddedMatrices.type_length(ProbabilityModels.extract_typeval($v))
+                    dim += ProbabilityModels.PaddedMatrices.param_type_length(ProbabilityModels.extract_typeval($v))
                 end
             end for v ∈ variable_type_names]...)
             ProbabilityModels.PaddedMatrices.Static{dim}()

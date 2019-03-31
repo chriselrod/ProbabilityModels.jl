@@ -1,11 +1,11 @@
 
-function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{P,Bool}, partial) where {P}
-    if P == 2
+function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Nparamargs,Bool}, partial::Bool) where {Nparamargs}
+    if Nparamargs == 2
         (track_β, track_κ) = track
         track_θ = false
         add_θ = false
     else
-        @assert P == 3
+        @assert Nparamargs == 3
         (track_β, track_κ, track_θ) = track
         add_θ = true
     end
@@ -194,6 +194,13 @@ struct Domains{S} end
 Base.@pure Domains(S::NTuple{N,Int}) where {N} = Domains{S}()
 Base.@pure Domains(S::Vararg{Int,N}) where {N} = Domains{S}()
 Base.getindex(::Domains{S}, i) where {S} = S[i]
+Base.length(::Domains{S}) where {S} = length(S)
+Base.eltype(::Domains{S}) where {S} = eltype(S)
+@inline Base.iterate(::Domains{S}) where {S} = @inbounds (S[1], 2)
+@inline function Base.iterate(::Domains{S}, i) where {S}
+    i > length(S) && return nothing
+    S[i], i+1
+end
 
 function HierarchicalCentering_quote(M::Int, T::DataType, μisvec::Bool, σisvec::Bool, (track_y, track_μ, track_σ), partial)
     μsym = μisvec ? :(μ[m]) : :μ
@@ -234,7 +241,7 @@ function HierarchicalCentering_quote(M::Int, T::DataType, μisvec::Bool, σisvec
         @vectorize $T for m ∈ 1:$M
             $loop_body
         end
-        $return_expr
+        $(ProbabilityDistributions.return_expression(return_expr))
     end)
     q
 end
@@ -308,7 +315,7 @@ function HierarchicalCentering_quote(
         @fastmath @inbounds begin
             $q
         end
-        $return_expr
+        $(ProbabilityDistributions.return_expression(return_expr))
     end
 end
 
@@ -317,7 +324,7 @@ end
             y::AbstractFixedSizePaddedVector{M,T},
             μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
             σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}}
-        ) where {M,T}
+        ) where {T,M}
 
     HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, (false,false,false), false)
 end
@@ -338,30 +345,30 @@ end
             y::AbstractFixedSizePaddedVector{M,T,P},
             μ::AbstractFixedSizePaddedVector{N,T},
             σ::AbstractFixedSizePaddedVector{N,T},
-            ::Domains{S}, ::Val{track}
-        ) where {M,N,T,S,track,P}
+            ::Domains{S}
+        ) where {M,N,T,P,S}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, false, false, S, track)
+    HierarchicalCentering_quote(M, P, T, true, true, S, (false,false,false))
 end
 @generated function HierarchicalCentering(
             #x::AbstractFixedSizePaddedVector{M,T},
             y::AbstractFixedSizePaddedVector{M,T,P},
             μ::AbstractFixedSizePaddedVector{N,T},
             σ::T,
-            ::Domains{S}, ::Val{track}
-        ) where {M,N,T,S,track,P}
+            ::Domains{S}
+        ) where {M,N,T,P,S}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, false, false, S, track)
+    HierarchicalCentering_quote(M, P, T, true, false, S, (false,false,false))
 end
 @generated function HierarchicalCentering(
             #x::AbstractFixedSizePaddedVector{M,T},
             y::AbstractFixedSizePaddedVector{M,T,P},
             μ::T,
             σ::AbstractFixedSizePaddedVector{N,T},
-            ::Domains{S}, ::Val{track}
-        ) where {M,N,T,S,track,P}
+            ::Domains{S}
+        ) where {M,N,T,P,S}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, false, false, S, track)
+    HierarchicalCentering_quote(M, P, T, false, true, S, (false,false,false))
 end
 @generated function ∂HierarchicalCentering(
             #x::AbstractFixedSizePaddedVector{M,T},

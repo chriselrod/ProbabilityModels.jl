@@ -31,8 +31,8 @@ end
 @inline ReducerWrapper{T}(data::V) where {T,V} = ReducerWrapper{T,V}(data)
 
 Base.:*(a, ::Reducer{true}) = sum(a)
-# Reducer{:row} reduces rows
-function Base.:*(A::AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Reducer{:row}) where {M,N,T,P}
+# Reducer{:row} reduces across rows
+function Base.:*(A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Reducer{:row}) where {M,N,T,P}
     reduction = MutableFixedSizePaddedVector{N,T}(undef)
     @inbounds for n ∈ 0:(N-1)
         sₙ = zero(T)
@@ -99,4 +99,27 @@ end
             ConstantFixedSizePaddedVector{$N,$T,$P}($outtup)
         end
     end
+end
+
+@inline ∂mul(x, y, ::Val{(true,true)}) = y, x
+@inline ∂mul(x, y, ::Val{(true,false)}) = y
+@inline ∂mul(x, y, ::Val{(false,true)}) = x
+
+@inline function ∂mul(D::LinearAlgebra.Diagonal{T,<:AbstractFixedSizePaddedVector{M,T,P}},
+                    L::AbstractLowerTriangularMatrix{M,T,N}, ::Val{(true,true)})
+
+
+    ∂DiagLowerTri∂Diag(L), ∂DiagLowerTri∂LowerTri(D)
+end
+@inline function ∂mul(D::LinearAlgebra.Diagonal{T,<:AbstractFixedSizePaddedVector{M,T,P}},
+                    L::AbstractLowerTriangularMatrix{M,T,N}, ::Val{(true,false)})
+
+
+    StructuredMatrices.∂DiagLowerTri∂Diag(L)
+end
+@inline function ∂mul(D::LinearAlgebra.Diagonal{T,<:AbstractFixedSizePaddedVector{M,T,P}},
+                    L::AbstractLowerTriangularMatrix{M,T,N}, ::Val{(false,true)})
+
+
+    StructuredMatrices.∂DiagLowerTri∂LowerTri(D)
 end
