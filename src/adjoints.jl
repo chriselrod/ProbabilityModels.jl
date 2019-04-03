@@ -5,14 +5,31 @@ struct One end
 # if the seed is for some reason multiplied on the right?
 @inline Base.:*(::One, a) = a
 
-@inline RESERVED_INCREMENT_SEED_RESERVED(a::One, b, c) = RESERVED_INCREMENT_SEED_RESERVED(b, c)
-@inline RESERVED_DECREMENT_SEED_RESERVED(a::One, b, c) = RESERVED_DECREMENT_SEED_RESERVED(b, c)
+@inline function RESERVED_INCREMENT_SEED_RESERVED(a::One, b, c)
+    out = RESERVED_INCREMENT_SEED_RESERVED(b, c)
+    # @assert !(isa(out, Array) || isa(out, LinearAlgebra.Adjoint{<:Any,<:Array}))
+    out
+end
+@inline function RESERVED_DECREMENT_SEED_RESERVED(a::One, b, c)
+    out = RESERVED_DECREMENT_SEED_RESERVED(b, c)
+    # @assert !(isa(out, Array) || isa(out, LinearAlgebra.Adjoint{<:Any,<:Array}))
+    out
+end
 
 @inline RESERVED_MULTIPLY_SEED_RESERVED(a::One, b) = b
 @inline RESERVED_NMULTIPLY_SEED_RESERVED(a::One, b) = RESERVED_NMULTIPLY_SEED_RESERVED(b)
 
-@inline RESERVED_INCREMENT_SEED_RESERVED(a, b::One, c) = RESERVED_INCREMENT_SEED_RESERVED(a, c)
-@inline RESERVED_DECREMENT_SEED_RESERVED(a, b::One, c) = RESERVED_DECREMENT_SEED_RESERVED(a, c)
+@inline function RESERVED_INCREMENT_SEED_RESERVED(a, b::One, c)
+    out = RESERVED_INCREMENT_SEED_RESERVED(a, c)
+    # @assert !(isa(out, Array) || isa(out, LinearAlgebra.Adjoint{<:Any,<:Array}))
+    out
+end
+@inline function RESERVED_DECREMENT_SEED_RESERVED(a, b::One, c)
+    out = RESERVED_DECREMENT_SEED_RESERVED(a, c)
+    # @assert !(isa(out, Array) || isa(out, LinearAlgebra.Adjoint{<:Any,<:Array}))
+    out
+end
+
 
 @inline RESERVED_MULTIPLY_SEED_RESERVED(a, b::One) = a
 @inline RESERVED_NMULTIPLY_SEED_RESERVED(a, b::One) = RESERVED_NMULTIPLY_SEED_RESERVED(a)
@@ -30,8 +47,14 @@ struct ReducerWrapper{T,V} <: AbstractReducer{T}
 end
 @inline ReducerWrapper{T}(data::V) where {T,V} = ReducerWrapper{T,V}(data)
 
-Base.:*(a, ::Reducer{true}) = sum(a)
+Base.size(::AbstractReducer) = ()
+
+# Base.:*(a, ::Reducer{true}) = sum(a)
 # Reducer{:row} reduces across rows
+@inline Base.:*(::Reducer{:row}, A::LinearAlgebra.Diagonal{<:Real,<:AbstractFixedSizePaddedVector}) = A.diag'
+@inline Base.:*(::Reducer{:row}, A::Number) = A
+@inline Base.:*(::Reducer{:row}, A::LinearAlgebra.Adjoint{<:Any,<:AbstractFixedSizePaddedVector}) = A
+
 function Base.:*(A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Reducer{:row}) where {M,N,T,P}
     reduction = MutableFixedSizePaddedVector{N,T}(undef)
     @inbounds for n ∈ 0:(N-1)
@@ -41,9 +64,13 @@ function Base.:*(A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Red
         end
         reduction[n+1] = sₙ
     end
-    ConstantFixedSizePaddedVector(reduction)
+    ConstantFixedSizePaddedVector(reduction)'
 end
 @generated function Base.:*(a::LinearAlgebra.Adjoint{T,<:AbstractFixedSizePaddedVector{M,T}}, ::Reducer{S}) where {M,T,S}
+    S == true && return quote
+        $(Expr(:meta,:inline))
+        sum(a.parent)
+    end
     @assert sum(S) == M
     N = length(S)
     q = quote end
@@ -66,7 +93,7 @@ end
     quote
         @fastmath @inbounds begin
             $q
-            ConstantFixedSizePaddedVector{$N,$T,$P}($outtup)
+            ConstantFixedSizePaddedVector{$N,$T,$P}($outtup)'
         end
     end
 end
@@ -96,7 +123,7 @@ end
     quote
         @fastmath @inbounds begin
             $q
-            ConstantFixedSizePaddedVector{$N,$T,$P}($outtup)
+            ConstantFixedSizePaddedVector{$N,$T,$P}($outtup)'
         end
     end
 end
@@ -106,19 +133,19 @@ end
 @inline ∂mul(x, y, ::Val{(false,true)}) = x
 
 @inline function ∂mul(D::LinearAlgebra.Diagonal{T,<:AbstractFixedSizePaddedVector{M,T,P}},
-                    L::AbstractLowerTriangularMatrix{M,T,N}, ::Val{(true,true)})
+                    L::StructuredMatrices.AbstractLowerTriangularMatrix{M,T,N}, ::Val{(true,true)}) where {M,N,P,T}
 
 
-    ∂DiagLowerTri∂Diag(L), ∂DiagLowerTri∂LowerTri(D)
+    StructuredMatrices.∂DiagLowerTri∂Diag(L), StructuredMatrices.∂DiagLowerTri∂LowerTri(D)
 end
 @inline function ∂mul(D::LinearAlgebra.Diagonal{T,<:AbstractFixedSizePaddedVector{M,T,P}},
-                    L::AbstractLowerTriangularMatrix{M,T,N}, ::Val{(true,false)})
+                    L::StructuredMatrices.AbstractLowerTriangularMatrix{M,T,N}, ::Val{(true,false)}) where {M,N,P,T}
 
 
     StructuredMatrices.∂DiagLowerTri∂Diag(L)
 end
 @inline function ∂mul(D::LinearAlgebra.Diagonal{T,<:AbstractFixedSizePaddedVector{M,T,P}},
-                    L::AbstractLowerTriangularMatrix{M,T,N}, ::Val{(false,true)})
+                    L::StructuredMatrices.AbstractLowerTriangularMatrix{M,T,N}, ::Val{(false,true)}) where {M,N,P,T}
 
 
     StructuredMatrices.∂DiagLowerTri∂LowerTri(D)

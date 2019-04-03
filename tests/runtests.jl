@@ -287,10 +287,10 @@ Normal_logeval_dropconst(βones, 0.0, 5.0, Val{(true,false,false)}())
 
 
 using ProbabilityModels, DistributionParameters, ProbabilityDistributions,
-    LoopVectorization,
+    LoopVectorization, LinearAlgebra,
     LogDensityProblems, SLEEFPirates, SIMDPirates, StructuredMatrices, ScatteredArrays, PaddedMatrices
 using DistributionParameters: LKJ_Correlation_Cholesky, RealFloat, PositiveFloat, UnitFloat, RealVector, PositiveVector
-using ProbabilityModels: ITPExpectedValue, ∂ITPExpectedValue
+using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExpectedValue, ∂ITPExpectedValue
 
 @model ITPModel begin
 
@@ -325,7 +325,7 @@ using ProbabilityModels: ITPExpectedValue, ∂ITPExpectedValue
     # Likelihood
     μ₁ = ITPExpectedValue(t, β₁, κ, θ)
     μ₂ = ITPExpectedValue(t, β₂, κ, θ)
-    AR = AutoregressiveMatrixLowerCholeskyInverse(2ρ-1, δt)
+    AR = AutoregressiveMatrix(2ρ-1, δt)
     Y₁ ~ Normal(μ₁, AR, U)
     Y₂ ~ Normal(μ₂, AR, U)
 
@@ -334,7 +334,9 @@ end
 #     Defined model: ITPModel.
 #     Unknowns: Y₂, domains, μₕ₂, δt, μᵣ₁, βₖ, η₀, αₖ, σᵦ, θ, μᵣ₂, ρ, σₕ, μₕ₁, κ, L, Y₁, βᵣ₂, t, βᵣ₁.
 
-
+using ProbabilityModels, DistributionParameters, ProbabilityDistributions,
+    LoopVectorization,
+    LogDensityProblems, SLEEFPirates, SIMDPirates, StructuredMatrices, ScatteredArrays, PaddedMatrices
 
 domains = ProbabilityModels.Domains(3,4,4,5);
 M = 24; N = sum(domains); Num_domains = length(domains);
@@ -342,7 +344,9 @@ M = 24; N = sum(domains); Num_domains = length(domains);
 ρ = 0.7;
 κ = 0.25 * (@Constant randexp(N));
 θ = 10.0 * (@Constant randn(N));
-L = (@Constant randn(N,2N)) |> x -> x * x' |> PaddedMatrices.chol
+S = (@Constant randn(N,2N)) |> x -> x * x';
+pS = StructuredMatrices.SymmetricMatrixL(S);
+L = PaddedMatrices.chol(S); U = PaddedMatrices.invchol(pS);
 m01 = @Constant randn(Num_domains); # placebo
 m02 = 2.0 + @Constant randn(Num_domains); #treatment
 b1 = vcat(ntuple(i -> (@Constant randn(domains[i])) + m01[i], Val(Num_domains))...); # placebo
@@ -353,12 +357,23 @@ t = ConstantFixedSizePaddedVector{24,Float64}(ntuple(i -> i == 1 ? 0.0 : lastt[]
 mu1 = ProbabilityModels.ITPExpectedValue(t, b1, κ, θ);
 mu2 = ProbabilityModels.ITPExpectedValue(t, b2, κ, θ);
 
-ARchol = PaddedMatrices.chol(ConstantFixedSizePaddedMatrix(StructuredMatrices.AutoregressiveMatrix(ρ, δt)));
+ARmat = StructuredMatrices.AutoregressiveMatrix(ρ, δt);
+# ARcholinv = ConstantFixedSizePaddedMatrix(ARmat);
+ARchol = PaddedMatrices.chol(ConstantFixedSizePaddedMatrix(ARmat));
 
 Y1 = [ARchol * (@Constant randn(M, N)) * L' + mu1 for n in 1:120];
 Y2 = [ARchol * (@Constant randn(M, N)) * L' + mu2 for n in 1:120];
 Y1c = ChunkedArray(Y1);
 Y2c = ChunkedArray(Y1);
+
+mu1a = Array(mu1);
+ARcholinva = inv(Array(ARchol)); Ua = Array(U);
+-0.5*sum(A -> sum(abs2,ARcholinva * (Array(A) .- mu1a) * Ua), Y1)
+ProbabilityDistributions.Normal(Y1c, mu1, ARmat, U, Val((false,true,false,false)))
+ProbabilityDistributions.Normal(Y1c, mu1, ARmat, U, Val((false,true,true,true)))
+# using BenchmarkTools
+# @benchmark ProbabilityDistributions.Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
+# @benchmark ProbabilityDistributions.∂Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
 
 ℓ = ITPModel(
     domains = domains, Y₁ = Y1c, Y₂ = Y2c, t = t, δt = δt,
@@ -374,8 +389,32 @@ Y2c = ChunkedArray(Y1);
 dimension(ℓ)
 a = fill(1.0, dimension(ℓ));
 logdensity(LogDensityProblems.Value, ℓ, a)
-logdensity(LogDensityProblems.ValueGradient, ℓ, a)
+vg = logdensity(LogDensityProblems.ValueGradient, ℓ, a)
+vgg = vg.gradient;
 
+a2 = MutableFixedSizePaddedVector(a);
+function gradi(ℓ, a, a2, i)
+    v1 = logdensity(LogDensityProblems.Value, ℓ, a)
+    a2[i] += sqrt(eps())
+    v2 = logdensity(LogDensityProblems.Value, ℓ, a2)
+    a2[i] = a[i]
+    (v2.value - v1.value) / sqrt(eps())
+end
+gradi(ℓ, a, a2, 1)
+gradicompare(ℓ, vgg, a, a2, i) = (gradi(ℓ, a, a2, i), vgg[i])
+for i ∈ 1:213
+   global ℓ, vgg, a, a2
+   @show i, gradicompare(ℓ, vgg, a, a2, i)
+end
+
+using LogDensityProblems, DynamicHMC
+@time mcmc_chain, tuned_sampler = ProbabilityModels.NUTS_init_tune_threaded(ℓ, 2000, max_depth = 12);
+
+@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 4000);
+
+
+report = ReportIO(countΔ = -1, time_nsΔ = -1);
+@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 4000, report = report);
 
 
 μₕ₁ = @Constant randn(4); # placebo

@@ -169,7 +169,7 @@ function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
             else
                 c = b
             end
-            if isa(a, Symbol)
+            if isa(a, Symbol) && !MacroTools.isgensym(a)
                 if haskey(vars, a)
                     lhs = gensym(a)
                     vars[a] = lhs
@@ -388,6 +388,7 @@ end
 types_to_vals(::Type{T}) where {T} = Val{T}()
 types_to_vals(v) = v
 extract_typeval(::Type{Val{T}}) where {T} = T
+extract_typeval(::Type{Val{Type{T}}}) where {T} = T
 
 function load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T, Nparam)
     θq = quote
@@ -437,8 +438,16 @@ function generate_generated_funcs_expressions(model_name, expr)
     variables = [v for v ∈ variable_set] # ensure order is constant
     variable_type_names = [Symbol("##Type##", v) for v ∈ variables]
 
+    Nparam = gensym(:number_parameters)
+    stride = gensym(:LDA)
+    L1 = gensym(:L)
+    L2 = gensym(:L)
+    T = gensym(:T)
+
     struct_quote = quote
         struct $model_name{$(variable_type_names...)} <: LogDensityProblems.AbstractLogDensityProblem
+            # ∇RESERVED::PaddedMatrices.MutableFixedSizePaddedVector{$Nparam,$T,$stride,$L1}
+            # ΣRESERVED::PaddedMatrices.MutableFixedSizePaddedMatrix{$Nparam,$Nparam,$T,$stride,$L2}
             $([:( $(variables[i])::$(variable_type_names[i]) ) for i ∈ eachindex(variables)]...)
         end
     end
@@ -449,6 +458,12 @@ function generate_generated_funcs_expressions(model_name, expr)
     # end
     struct_kwarg_quote = quote
         function $model_name(; $(variables...))
+            # $Nparam = 0
+            # $([quote
+            #     if $v <: Val
+            #         $Nparam += ProbabilityModels.PaddedMatrices.param_type_length(ProbabilityModels.extract_typeval($v))
+            #     end
+            # end for v ∈ variable_type_names]...)
             $model_name($([:(ProbabilityModels.types_to_vals($v)) for v ∈ variables]...))
         end
     end
@@ -480,8 +495,6 @@ function generate_generated_funcs_expressions(model_name, expr)
     V = gensym(:V)
     ℓ = gensym(:ℓ)
     θ = gensym(:θ)
-    T = gensym(:T)
-    Nparam = gensym(:number_parameters)
     Tθ = gensym(:Tθ)
 
     # q = quote
@@ -569,24 +582,53 @@ function generate_generated_funcs_expressions(model_name, expr)
             #         )
             #     end
             # end
+
             processing = quote
+                # println("About to rename assginemtns:\n")
+                # display(second_pass)
                 second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
+                # println("\nRenamed assginemtns:\n")
+                # display(second_pass)
                 TLθ = ProbabilityModels.PaddedMatrices.type_length($θ) # This refers to the type of the input
                 ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
                 expr_out = quote
                     # target = zero($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                     $first_pass
+                    # $(Symbol("##∂θparameter##m")) = $ℓ_sym.∇RESERVED
                     $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
                     $(Symbol("##∂θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
                     $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
+                    # $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.Reducer{:row}()
                     $second_pass
 
-                    $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
-                    LogDensityProblems.ValueGradient(
-                        isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
-                        $(Symbol("##∂θparameter##mconst"))
-                    )
+                    # LogDensityProblems.ValueGradient(
+                    #     isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##m"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
+                    #     $(Symbol("##∂θparameter##m"))
+                    # )
+                    #
+                    # $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
+                    # LogDensityProblems.ValueGradient(
+                    #     isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
+                    #     $(Symbol("##∂θparameter##mconst"))
+                    # )
+                end
+                # VectorizationBase.REGISTER_SIZE is in bytes, so this is asking if 4 registers can hold the parameter vector
+                if 2TLθ > ProbabilityModels.VectorizationBase.REGISTER_SIZE
+                    push!(expr_out.args, quote
+                        LogDensityProblems.ValueGradient(
+                            isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##m"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
+                            $(Symbol("##∂θparameter##m"))
+                        )
+                    end)
+                else
+                    push!(expr_out.args, quote
+                        $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
+                        LogDensityProblems.ValueGradient(
+                            isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
+                            $(Symbol("##∂θparameter##mconst"))
+                        )
+                    end)
                 end
             end
         else
@@ -628,6 +670,7 @@ function generate_generated_funcs_expressions(model_name, expr)
             expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
             θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
             T_sym = $(QuoteNode(T))
+            ℓ_sym = $(QuoteNode(ℓ))
             $processing
             final_quote = quote
                 # @fastmath @inbounds begin
@@ -635,7 +678,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
                 end
             end
-            # display(final_quote)
+            # display(ProbabilityModels.MacroTools.striplines(final_quote))
             final_quote
         end)
 

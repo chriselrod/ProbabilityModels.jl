@@ -220,21 +220,26 @@ function HierarchicalCentering_quote(M::Int, T::DataType, μisvec::Bool, σisvec
     return_expr = Expr(:tuple, :(ConstantFixedSizePaddedVector(xout)) )
     if track_y
         if σisvec
-            push!(return_expr.args, :σ )
+            push!(return_expr.args, :(Diagonal(σ)) )
         else
             push!(return_expr.args, :(LinearAlgebra.UniformScaling(σ)) )
         end
     end
     if track_μ
-        push!(return_expr.args, :(One()))
+        if μisvec
+            push!(return_expr.args, :(One()))
+        else
+            push!(return_expr.args, :(Reducer{true}()))
+        end
     end
     if track_σ
         if σisvec
-            push!(return_expr.args, :y )
+            push!(return_expr.args, :(Diagonal(y)) )
         else
-            push!(return_expr.args, :∂σ)
-            push!(q.args, :(∂σ = zero($T)) )
-            push!(loop_body.args, :(∂σ += y[m]) )
+            # push!(return_expr.args, :∂σ)
+            # push!(q.args, :(∂σ = zero($T)) )
+            # push!(loop_body.args, :(∂σ += y[m]) )
+            push!(return_expr.args, :(y) )
         end
     end
     push!(q.args, quote
@@ -300,7 +305,7 @@ function HierarchicalCentering_quote(
                 push!(∂yexpr.args, zero(T))
             end
             push!(q.args, :( ∂y = ConstantFixedSizePaddedVector{$M,$T,$P}($∂yexpr) ))
-            push!(return_expr.args, :∂y )
+            push!(return_expr.args, :(LinearAlgebra.Diagonal(∂y)) )
         else
             push!(return_expr.args,  :(LinearAlgebra.UniformScaling(σ)) )
         end
@@ -324,7 +329,8 @@ end
             y::AbstractFixedSizePaddedVector{M,T},
             μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
             σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}}
-        ) where {T,M}
+        ) where {M,T}
+        # ) where {T,M}
 
     HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, (false,false,false), false)
 end
@@ -335,6 +341,7 @@ end
             μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
             σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
             ::Val{track}
+        # ) where {T,M,track}
         ) where {M,T,track}
 
     HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, track, true)
@@ -376,7 +383,8 @@ end
             μ::AbstractFixedSizePaddedVector{N,T},
             σ::AbstractFixedSizePaddedVector{N,T},
             ::Domains{S}, ::Val{track}
-        ) where {M,N,T,S,track,P}
+        ) where {M,N,S,T,track,P}
+        # ) where {M,N,T,S,track,P}
     @assert length(S) == N
     HierarchicalCentering_quote(M, P, T, true, true, S, track)
 end

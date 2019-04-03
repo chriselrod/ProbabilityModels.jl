@@ -6,7 +6,7 @@ using   MacroTools, DiffRules,
         DistributionParameters, ProbabilityDistributions,
         DynamicHMC, LogDensityProblems,
         Random, VectorizedRNG, RandomNumbers,
-        LinearAlgebra
+        LinearAlgebra, Statistics#, Distributed
 
 import MacroTools: postwalk, prewalk, @capture, @q
 import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,

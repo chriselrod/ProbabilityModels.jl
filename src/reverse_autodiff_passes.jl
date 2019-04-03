@@ -1,3 +1,20 @@
+const NOOPDIFFS = Set{Symbol}( ( :AutoregressiveMatrix, ))
+
+function noopdiff!(first_pass, second_pass, tracked_vars, out, f, A)
+    track = false
+    seedout = Symbol("###seed###", out)
+    for i ∈ eachindex(A)
+        a = A[i]
+        a ∈ tracked_vars || continue
+        track = true
+        seeda = Symbol("###seed###", a)
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED( $seedout, $seeda )))
+    end
+    track && push!(tracked_vars, out)
+    push!(first_pass.args, :($out = $f($(A...))))
+    nothing
+end
+
 # How to search modules?
 function reverse_diff_pass(expr, gradient_targets)
     tracked_vars = Set{Symbol}(gradient_targets)
@@ -61,7 +78,7 @@ function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
             throw("Loops not yet supported!")
             # reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
         elseif @capture(x, out_ = f_(A__))
-            diff!(first_pass, second_pass, tracked_vars, out, f, A)
+            differentiate!(first_pass, second_pass, tracked_vars, out, f, A)
         elseif @capture(x, out_ = A_) && isa(A, Symbol)
             push!(first_pass.args, x)
             pushfirst!(second_pass.args, :( $(Symbol("###seed###", A)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $(Symbol("###seed###", A)) )) )
@@ -79,7 +96,7 @@ end
 #             throw("Loops not yet supported!")
 #             # reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
 #         elseif @capture(x, out_ = f_(A__))
-#             diff!(first_pass, second_pass, tracked_vars, out, f, A)
+#             differentiate!(first_pass, second_pass, tracked_vars, out, f, A)
 #         # elseif @capture(x, out_ = A_) && (isa(A,Symbol))
 #         #     push!(first_pass, x)
 #         #     pushfirst!(second_pass, :())
@@ -136,12 +153,14 @@ will be added.
 "first_pass" is an expression of the forward pass, while
 "second_pass" is an expression for the reverse pass.
 """
-function diff!(first_pass, second_pass, tracked_vars, out, f, A)
+function differentiate!(first_pass, second_pass, tracked_vars, out, f, A)
     arity = length(A)
     if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
         ProbabilityDistributions.distribution_diff_rule!(:(ProbabilityModels.ProbabilityDistributions), first_pass, second_pass, tracked_vars, out, A, f)
     elseif haskey(SPECIAL_DIFF_RULES, f)
         SPECIAL_DIFF_RULES[f](first_pass, second_pass, tracked_vars, out, A)
+    elseif f ∈ NOOPDIFFS
+        noopdiff!(first_pass, second_pass, tracked_vars, out, f, A)
     elseif DiffRules.hasdiffrule(:Base, f, arity)
         apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, DiffRules.diffrule(:Base, f, A...))
     elseif DiffRules.hasdiffrule(:SpecialFunctions, f, arity)
@@ -181,7 +200,7 @@ function zygote_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
         return nothing
     end
     back = gensym(:back)
-    if length(A) == length(anon_args)
+    if length(A) == length(anon_args.args)
         # we'll be easy on the compiler, and not create an anonymous function
         push!(first_pass.args, quote
             $out, $back = forward($f, $(A...))

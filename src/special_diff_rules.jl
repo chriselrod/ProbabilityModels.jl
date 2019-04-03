@@ -113,7 +113,7 @@ function mul_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
             push!(track_tup.args, false)
         end
     end
-    pushfirst!(second_pass.args, :($(ProbabilityDistributions.return_expression(return_expr)) = ∂mul($a1, $a2, Val{$track_tup}())))
+    pushfirst!(second_pass.args, :($(ProbabilityDistributions.return_expression(return_expr)) = ProbabilityModels.∂mul($a1, $a2, Val{$track_tup}())))
     nothing
 end
 SPECIAL_DIFF_RULES[:*] = mul_diff_rule!
@@ -139,7 +139,7 @@ function itp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         end
     end
     track_out && push!(tracked_vars, out)
-    push!(first_pass.args, :( $(ProbabilityDistributions.return_expression(∂tup)) = ProbabilityModels.∂ITPExpectedValue($(A[2:end]...), Val{$track_tup}())))
+    push!(first_pass.args, :( $(ProbabilityDistributions.return_expression(∂tup)) = ProbabilityModels.∂ITPExpectedValue($(A...), Val{$track_tup}())))
     nothing
 end
 SPECIAL_DIFF_RULES[:ITPExpectedValue] = itp_diff_rule!
@@ -154,14 +154,14 @@ function hierarchical_centering_diff_rule!(first_pass, second_pass, tracked_vars
     seedout = Symbol("###seed###", out)
     for i ∈ 1:3
         a = A[i]
-        if tracked
+        if tracked[i]
             ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
-            push!(func_output, ∂)
+            push!(func_output.args, ∂)
             seeda = Symbol("###seed###", a)
             pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
         end
     end
-    push!(first_pass.args, :($func_output = ∂HierarchicalCentering($A..., Val{$tracked}()) ) )
+    push!(first_pass.args, :($func_output = ∂HierarchicalCentering($(A...), Val{$tracked}()) ) )
     nothing
 end
 SPECIAL_DIFF_RULES[:HierarchicalCentering] = hierarchical_centering_diff_rule!
