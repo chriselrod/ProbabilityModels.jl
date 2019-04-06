@@ -559,6 +559,10 @@ function generate_generated_funcs_expressions(model_name, expr)
                 if $(variable_type_names[i]) <: Val
                     push!(model_parameters, $(QuoteNode(variables[i])))
                     ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), $return_partials)
+                    if !$return_partials
+                        push!(first_pass.args, Expr(:call, :println, $(string(variables[i]))))
+                        push!(first_pass.args, Expr(:call, :println, $(QuoteNode(variables[i]))))
+                    end
                 else
                     push!(first_pass.args, $load_data)
                 end
@@ -647,7 +651,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     # target = zero($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                     $first_pass
-                    LogDensityProblems.Value( $(name_dict[:target]) )
+                    LogDensityProblems.Value( isfinite($(name_dict[:target])) ? $(name_dict[:target]) : -Inf )
                 end
             end
         end
@@ -698,6 +702,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                 end
             end for v ∈ variable_type_names]...)
             ProbabilityModels.PaddedMatrices.Static{dim}()
+            # dim
         end
     end
 

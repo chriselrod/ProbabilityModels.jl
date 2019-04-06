@@ -52,17 +52,17 @@ end
 end
 function threadrandinit()
     N = Base.Threads.nthreads()
+    W = VectorizationBase.pick_vector_width(Float64)
     rngs = Vector{ScalarVectorPCG{4}}(undef, N)
-    seeds = rand(UInt64, 4N)
+    seeds = rand(UInt64, 4W*N)
     Base.Threads.@threads for n ∈ 1:N
         rngs[n] = ScalarVectorPCG(
             RandomNumbers.PCG.PCGStateUnique(PCG.PCG_RXS_M_XS),
-            VectorizedRNG.PCG(ntuple(j -> seeds[j+4(n-1)], Val(4)))
+            VectorizedRNG.PCG(ntuple(j -> seeds[j+4W*(n-1)], Val(4W)))
         )
     end
     rngs
 end
-const GLOBAL_ScalarVectorPCGs = threadrandinit()
 
 
 import DynamicHMC
@@ -93,7 +93,7 @@ end
         return quote
             M⁻¹ = MutableFixedSizePaddedVector{$S,Float64}(undef)
             W = MutableFixedSizePaddedVector{$S,Float64}(undef)
-            @fastmath rm = 1 / sqrt(m)
+            @fastmath rm = 1 / sqrt(m⁻¹)
             @inbounds for s ∈ 1:$S
                 M⁻¹[s] = m⁻¹
                 W[s] = rm
@@ -327,11 +327,11 @@ function sample_crossprod_quote(N,T,Ptrunc,Pfull,stride,out = :Σ)
     q
 end
 
-function stable_tune(sampler_0, seq::DynamicHMC.TunerSequence)
+function stable_tune(sampler_0, seq::DynamicHMC.TunerSequence, δ)
     tuners = seq.tuners
     Base.Cartesian.@nexprs 7 i -> begin
         tuner_i = tuners[i]
-        sampler_i = DynamicHMC.tune(sampler_{i-1}, tuner_i)
+        sampler_i = DynamicHMC.tune(sampler_{i-1}, tuner_i, δ)
     end
     sampler_7
 end
@@ -349,6 +349,16 @@ function neg_energy(
         qfd += pnc*pnc*M⁻¹[nc,nc]
     end
     @fastmath - qfo - 0.5qfd
+end
+function neg_energy(
+        κ::DynamicHMC.GaussianKE{Diagonal{T,M},Diagonal{T,M}}, p::AbstractFixedSizePaddedVector{N,T}, q = nothing) where {N,T,M<:PaddedMatrices.AbstractMutableFixedSizePaddedVector{N,T}}
+
+    M⁻¹ = κ.Minv.diag
+    qf = zero(T)
+    @fastmath @inbounds @simd ivdep for n ∈ 1:N
+        qf += M⁻¹[n] * p[n] * [n]
+    end
+    qf
 end
 # @inline function sample_sum(sample)
 #     x̄ = DynamicHMC.get_position(sample[1])
@@ -484,6 +494,73 @@ end
         end
     end
 end
+@generated function columnwise_variance!(
+                σ²::PaddedMatrices.AbstractMutableFixedSizePaddedVector{P,Tf,L,L},
+                sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}, x̄, s
+            ) where {Tf,L,P,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
+
+    stride_bytes = sizeof(DynamicHMC.NUTS_Transition{Tv,Tf})
+    sample_mat_stride, leftover_stride = divrem(stride_bytes, sizeof(Tf))
+    @assert leftover_stride == 0
+
+    W, Wshift = VectorizationBase.pick_vector_width_shift(P, Tf)
+
+    WT = W * sizeof(Tf)
+    V = Vec{W,Tf}
+
+    # +2, to divide by an additional 4
+    iterations = L >> (Wshift + 2)
+    r = L & ((W << 2) - 1)
+    riter = r >> Wshift
+
+    remainder_quote = quote
+        Base.Cartesian.@nexprs $riter j -> begin
+            offset_j = $(4WT*iterations) + $WT*(j-1)
+            x_j = SIMDPirates.vmul(SIMDPirates.vload($V, ptrx̄ + offset_j), vs)
+            x2_j = SIMDPirates.vbroadcast($V, zero($Tf))
+        end
+        for n ∈ 0:N-1
+            offset_n = n * $stride_bytes
+            Base.Cartesian.@nexprs $riter j -> begin
+                xdiff_j = SIMDPirates.vsub(SIMDPirates.vload($V, ptrsample + offset_n + offset_j), x_j)
+                x2_j = SIMDPirates.vmuladd(xdiff_j, xdiff_j, x2_j)
+            end
+        end
+        Base.Cartesian.@nexprs $riter j -> begin
+            SIMDPirates.vstore!(vσ² + offset_j, x2_j)
+        end
+    end
+
+    quote
+        vs = SIMDPirates.vbroadcast($V, s)
+        ptrx̄ = pointer(x̄)
+        vσ² = pointer(σ²)
+        ptrsample = Base.unsafe_convert(Ptr{$Tf}, pointer(sample))
+        N = length(sample)
+        vNm1⁻¹ = SIMDPirates.vbroadcast($V, 1 / (N-1))
+        # x̄ = DynamicHMC.get_position(sample[1])
+        GC.@preserve x̄ sample begin
+            for i ∈ 0:$(iterations-1)
+                Base.Cartesian.@nexprs 4 j -> begin
+                    offset_j = $(4WT)*i + $WT*(j-1)
+                    x_j = SIMDPirates.vmul(SIMDPirates.vload($V, ptrx̄ + offset_j), vs)
+                    x2_j = SIMDPirates.vbroadcast($V, zero($Tf))
+                end
+                for n ∈ 0:N-1
+                    offset_n = n * $stride_bytes
+                    Base.Cartesian.@nexprs 4 j -> begin
+                        xdiff_j = SIMDPirates.vsub(SIMDPirates.vload($V, ptrsample + offset_n + offset_j), x_j)
+                        x2_j = SIMDPirates.vmuladd(xdiff_j, xdiff_j, x2_j)
+                    end
+                end
+                Base.Cartesian.@nexprs 4 j -> begin
+                    SIMDPirates.vstore!(vσ² + offset_j, SIMDPirates.vmul(vNm1⁻¹, x2_j))
+                end
+            end
+            $(riter == 0 ? nothing : remainder_quote)
+        end
+    end
+end
 @generated function sample_mean(sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}) where {T,P,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,T},Tf}
     W, Wshift = VectorizationBase.pick_vector_width_shift(P, T)
     if P <= 4W
@@ -532,7 +609,7 @@ end
             x̄ = sample_sum(sample)
             # x̄ *= sqrt(1/N)
             Σ = MutableFixedSizePaddedMatrix{$P,$P,$Tf,$L,$(L*P)}(undef)
-            off_diag_reg = (1 - reg) / (N - 1)
+            off_diag_reg = (1 - reg / N) /  (N - 1)
 
             # This commented out code is faster
             # nN⁻¹ = - 1 / N
@@ -563,14 +640,14 @@ end
             # m̃ = quickmedian!(x̄)
             m̃ = median!(x̄)
 
-            off_diag_reg⁻¹ = 1 / off_diag_reg
-            diag_reg = m̃ * reg / (1 - reg)
+            # off_diag_reg⁻¹ = 1 / (1 - reg)
+            diag_reg = m̃ * reg / (N - reg)
             # off_diag_reg = (1 - reg) / (N - 1)
             # @vectorize $Tf for i ∈ 1:$(L*P)
             #     Σ[i] = Σ[i] * off_diag_reg
             # end
             @fastmath @inbounds for p ∈ 1:$P
-                Σ[p,p] = off_diag_reg⁻¹ * Σ[p,p] + diag_reg
+                Σ[p,p] += diag_reg
             end
             Symmetric(Σ)
         end
@@ -598,8 +675,8 @@ end
         @inbounds for p ∈ 1:$P
             m[p] = Σ[p,p]
         end
-        off_diag_reg = (1 - reg) / (N - 1)
-        diag_reg = median!(m) * reg / (N - 1)
+        off_diag_reg = (1 - reg / N) / (N - 1)
+        diag_reg = median!(m) * reg / (N - reg)
         # diag_reg = quickmedian!(m) * reg / (N - 1)
         # off_diag_reg = (1 - reg) / (N - 1)
         @vectorize $Tf for i ∈ 1:$(L*P)
@@ -678,6 +755,86 @@ end
     end
 end
 
+
+@generated function sample_diagcov(sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}, reg) where {Tf,L,P,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
+    sample_mat_stride, leftover_stride = divrem(sizeof(DynamicHMC.NUTS_Transition{Tv,Tf}), sizeof(Tf))
+    @assert leftover_stride == 0
+    W = VectorizationBase.pick_vector_width(P, Tf)
+    Wm1 = W - 1
+    # rem = P & Wm1
+    # @show P, W
+    # L = (P + Wm1) & ~Wm1
+    if P > 4W
+        return quote
+            N = length(sample)
+            x̄ = sample_sum(sample)
+            Σ = MutableFixedSizePaddedVector{$P,$Tf,$L,$L}(undef)
+            columnwise_variance!(Σ, sample, x̄, 1/N)
+
+            # @show Σ
+            # Σ = Statistics.var(reshape(reinterpret(Float64, get_position.(sample)), ($L,N)), dims = 2)
+            @inbounds for l ∈ 1:$L
+                x̄[l] = Σ[l]
+            end
+            # return Diagonal(x̄)
+            # # @show x̄
+            # m̃ = quickmedian!(x̄)
+            # m̃ = median!(x̄)
+            # regmul = 1 - reg / N
+            # regadd = m̃ * reg / N
+            regmul = Tf(N / (N+reg))
+            regadd = Tf(1e-3 * (reg / (N+reg)))
+
+            # x̄ already escaped the function in median!, so we'll store there and return it
+            @fastmath @inbounds @simd ivdep for l ∈ 1:$L
+                x̄[l] = Σ[l] * regmul + regadd
+            end
+            # @show x̄
+            # @show Diagonal(d).diag
+            Diagonal(x̄)
+        end
+
+    end
+    quote
+        # $(Expr(:meta,:inline))
+        N = length(sample)
+        x̄ = sample_sum(sample)
+        nN⁻¹ = - 1 / N
+        Σ = MutableFixedSizePaddedMatrix{$P,$P,$Tf,$L,$(L*P)}(undef)
+        @inbounds for p ∈ 1:$P
+            x̄ₚ = nN⁻¹ * x̄[p]
+            s = $L * (p-1)
+            @vectorize $Tf for l ∈ 1:$L
+                Σ[l + s] = x̄[l] * x̄ₚ
+            end
+        end
+        # @inbounds for i ∈ 1:$(L*P)
+        #     out[i] = zero(T)
+        # end
+        # ConstantFixedSizePaddedMatrix(out)
+        $(sample_crossprod_quote(:N,Tf,P,L,sample_mat_stride))
+        m = MutableFixedSizePaddedVector{$P,$Tf,$L,$L}(undef)
+        @inbounds for p ∈ 1:$P
+            m[p] = Σ[p,p]
+        end
+        off_diag_reg = (1 - reg / N) / (N - 1)
+        diag_reg = median!(m) * reg / (N - reg)
+        # diag_reg = quickmedian!(m) * reg / (N - 1)
+        # off_diag_reg = (1 - reg) / (N - 1)
+        @vectorize $Tf for i ∈ 1:$(L*P)
+            Σ[i] = Σ[i] * off_diag_reg
+        end
+        @inbounds for p ∈ 1:$P
+            Σ[p,p] += diag_reg
+        end
+        # @inbounds for i ∈ 1:$(L*P)
+        #     out[i] *= (1/(N-1))
+        # end
+        # out
+        ConstantFixedSizePaddedMatrix(Σ)
+    end
+end
+
 @inline function last_position(sample::Vector, ::Type{Tv}) where {P, T, L, Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,T,L,L}}
     if isbitstype(Tv)
         last_position = sample[end].q
@@ -693,7 +850,7 @@ end
     last_position
 end
 
-function DynamicHMC.tune(sampler::NUTS{Tv}, tuner::DynamicHMC.StepsizeCovTuner) where {P,T,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,T}}
+function DynamicHMC.tune(sampler::NUTS{Tv}, tuner::DynamicHMC.StepsizeCovTuner, δ) where {P,T,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,T}}
     # @show typeof(sampler)
     regularize = tuner.regularize
     N = tuner.N
@@ -702,19 +859,20 @@ function DynamicHMC.tune(sampler::NUTS{Tv}, tuner::DynamicHMC.StepsizeCovTuner) 
     max_depth = sampler.max_depth
     report = sampler.report
 
-    sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N)
+    sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N, DynamicHMC.adapting_ϵ(sampler.ϵ, δ = δ)...)
     last_pos = last_position(sample, Tv)
-    Σ = sample_cov!(sample, regularize/N)
+    Σ = sample_cov!(sample, regularize)
+    # Σ = sample_diagcov(sample, regularize)
     κ = DynamicHMC.GaussianKE(Σ)
     DynamicHMC.NUTS(rng, DynamicHMC.Hamiltonian(H.ℓ, κ), last_pos, DynamicHMC.get_final_ϵ(A), max_depth, report)
 end
-function DynamicHMC.tune(sampler::NUTS{Tv}, tuner::DynamicHMC.StepsizeTuner) where {P,T,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,T}}
+function DynamicHMC.tune(sampler::NUTS{Tv}, tuner::DynamicHMC.StepsizeTuner, δ) where {P,T,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,T}}
     N = tuner.N
     rng = sampler.rng
     H = sampler.H
     max_depth = sampler.max_depth
     report = sampler.report
-    sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N)
+    sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N, DynamicHMC.adapting_ϵ(sampler.ϵ, δ = δ)...)
     last_pos = last_position(sample, Tv)
     DynamicHMC.NUTS(rng, H, last_pos, DynamicHMC.get_final_ϵ(A), max_depth, report)
 end
@@ -771,9 +929,9 @@ end
 # end
 
 @generated default_tuners() = DynamicHMC.bracketed_doubling_tuner()
-function NUTS_init_tune_mcmc_default(rng, ℓ, N; args...)
+function NUTS_init_tune_mcmc_default(rng, ℓ, N; δ = 0.8, args...)
     sampler_init = DynamicHMC.NUTS_init(rng, ℓ; args...)
-    sampler_tuned = stable_tune(sampler_init, default_tuners())
+    sampler_tuned = stable_tune(sampler_init, default_tuners(), δ)
     DynamicHMC.mcmc(sampler_tuned, N), sampler_tuned
 end
 NUTS_init_tune_mcmc_default(ℓ, N; args...) = NUTS_init_tune_mcmc_default(GLOBAL_ScalarVectorPCGs[1], ℓ, N; args...)
