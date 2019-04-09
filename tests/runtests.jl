@@ -329,6 +329,7 @@ using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExp
     # Likelihood
     μ₁ = ITPExpectedValue(t, β₁, κ, θ)
     μ₂ = ITPExpectedValue(t, β₂, κ, θ)
+    #AR = AutoregressiveMatrix(2ρ-1, δₜ)
     AR = AutoregressiveMatrix(2ρ-1, δₜ)
     Y₁ ~ Normal(μ₁, AR, U)
     Y₂ ~ Normal(μ₂, AR, U)
@@ -441,8 +442,15 @@ compare_grads(ℓ, randn(dimension(ℓ)))
 
 
 using LogDensityProblems, DynamicHMC
+# @time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 500);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
 @time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 500);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
 using MCMCDiagnostics
+NUTS_statistics(mcmc_chain)
+tuned_sampler
+chain_matrix = get_position_matrix(mcmc_chain);
+[effective_sample_size(chain_matrix[:,i]) for i in 1:10]'
+
+
 function chain_to_array(chain::Array{NUTS_Transition{ConstantFixedSizePaddedArray{Tuple{N},Float64,1,L,L},Float64},1}) where {N,L}
     pos = get_position.(chain)
     s = sizeof(eltype(pos)) >> 3
@@ -451,8 +459,8 @@ end
 function process_chain(chain)
     copy(chain_to_array(chain)')
 end
-c = process_chain(mcmc_chain)
-ntuple(i -> effective_sample_size(c[:,i]), Val(8))
+c = process_chain(mcmc_chain);
+ntuple(i -> effective_sample_size(c[:,i]), Val(16))
 NUTS_statistics(mcmc_chain)
 tuned_sampler
 

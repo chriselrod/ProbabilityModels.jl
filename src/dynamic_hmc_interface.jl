@@ -17,9 +17,15 @@ end
 @inline Random.rand(pcg::ScalarVectorPCG, ::Type{T}) where {T <: VectorizationBase.AbstractSIMDVector} = rand(pcg.vector, T)
 @inline Random.randn(pcg::ScalarVectorPCG, ::Type{T}) where {T <: VectorizationBase.AbstractSIMDVector} = randn(pcg.vector, T)
 @inline Random.randexp(pcg::ScalarVectorPCG, ::Type{T}) where {T <: VectorizationBase.AbstractSIMDVector} = randexp(pcg.vector, T)
+issmall(::PaddedMatrices.Static{S}) where {S} = 2S <= VectorizationBase.REGISTER_SIZE
+issmall(n::Number) = 2n <= VectorizationBase.REGISTER_SIZE
 @generated function Random.rand(pcg::ScalarVectorPCG, ::PaddedMatrices.Static{N}) where {N}
     if 2N > VectorizationBase.REGISTER_SIZE
-        q = :(rand(pcg.vector, MutableFixedSizePaddedVector{$N,Float64}))
+        q = quote
+            x = Vector{Float64}(undef, $N)
+            rand!(pcg.vector, x)
+            x
+        end
     else
         q = quote
             $(Expr(:meta,:inline))
@@ -30,7 +36,11 @@ end
 end
 @generated function Random.randn(pcg::ScalarVectorPCG, ::PaddedMatrices.Static{N}) where {N}
     if 2N > VectorizationBase.REGISTER_SIZE
-        q = :(randn(pcg.vector, MutableFixedSizePaddedVector{$N,Float64}))
+        q = quote
+            x = Vector{Float64}(undef, $N)
+            randn!(pcg.vector, x)
+            x
+        end
     else
         q = quote
             $(Expr(:meta,:inline))
@@ -41,7 +51,11 @@ end
 end
 @generated function Random.randexp(pcg::ScalarVectorPCG, ::PaddedMatrices.Static{N}) where {N}
     if 2N > VectorizationBase.REGISTER_SIZE
-        q = :(randexp(pcg.vector, MutableFixedSizePaddedVector{$N,Float64}))
+        q = quote
+            x = Vector{Float64}(undef, $N)
+            randexp!(pcg.vector, x)
+            x
+        end
     else
         q = quote
             $(Expr(:meta,:inline))
@@ -55,10 +69,11 @@ function threadrandinit()
     W = VectorizationBase.pick_vector_width(Float64)
     rngs = Vector{ScalarVectorPCG{4}}(undef, N)
     seeds = rand(UInt64, 4W*N)
+    myprocid = myid()-1
     Base.Threads.@threads for n ∈ 1:N
         rngs[n] = ScalarVectorPCG(
             RandomNumbers.PCG.PCGStateUnique(PCG.PCG_RXS_M_XS),
-            VectorizedRNG.PCG(ntuple(j -> seeds[j+4W*(n-1)], Val(4W)))
+            VectorizedRNG.PCG(ntuple(j -> seeds[j+4W*((n-1))], Val(4W)), (n-1) + N*myprocid )
         )
     end
     rngs
@@ -70,15 +85,16 @@ using LinearAlgebra, Random
 
 @generated function DynamicHMC.GaussianKE(::PaddedMatrices.Static{S}) where {S}
     if 2S > VectorizationBase.REGISTER_SIZE
-        return quote
-            m⁻¹ = 1.0
-            rm = 1.0
-            out = MutableFixedSizePaddedVector{$S,Float64}(undef)
-            @inbounds for s ∈ 1:$S
-                out[s] = m⁻¹
-            end
-            GaussianKE(Diagonal(out),Diagonal(out)) # Why not let them alias each other?
-        end
+        # return quote
+        #     m⁻¹ = 1.0
+        #     rm = 1.0
+        #     out = MutableFixedSizePaddedVector{$S,Float64}(undef)
+        #     @inbounds for s ∈ 1:$S
+        #         out[s] = m⁻¹
+        #     end
+        #     GaussianKE(Diagonal(out),Diagonal(out)) # Why not let them alias each other?
+        # end
+        return :(DynamicHMC.GaussianKE($S))
     else
         return quote
             m⁻¹ = 1.0
@@ -90,16 +106,17 @@ using LinearAlgebra, Random
 end
 @generated function DynamicHMC.GaussianKE(::PaddedMatrices.Static{S}, m⁻¹) where {S}
     if 2S > VectorizationBase.REGISTER_SIZE
-        return quote
-            M⁻¹ = MutableFixedSizePaddedVector{$S,Float64}(undef)
-            W = MutableFixedSizePaddedVector{$S,Float64}(undef)
-            @fastmath rm = 1 / sqrt(m⁻¹)
-            @inbounds for s ∈ 1:$S
-                M⁻¹[s] = m⁻¹
-                W[s] = rm
-            end
-            GaussianKE(Diagonal(M⁻¹), Diagonal(W))
-        end
+        # return quote
+        #     M⁻¹ = MutableFixedSizePaddedVector{$S,Float64}(undef)
+        #     W = MutableFixedSizePaddedVector{$S,Float64}(undef)
+        #     @fastmath rm = 1 / sqrt(m⁻¹)
+        #     @inbounds for s ∈ 1:$S
+        #         M⁻¹[s] = m⁻¹
+        #         W[s] = rm
+        #     end
+        #     GaussianKE(Diagonal(M⁻¹), Diagonal(W))
+        # end
+        return :(DynamicHMC.GaussianKE($S), m⁻¹)
     else
         return :(GaussianKE(Diagonal(fill(m⁻¹, PaddedMatrices.Static{S}())),Diagonal(fill(@fastmath(1/sqrt(m⁻¹)), PaddedMatrices.Static{S}()))))
     end
@@ -327,13 +344,18 @@ function sample_crossprod_quote(N,T,Ptrunc,Pfull,stride,out = :Σ)
     q
 end
 
-function stable_tune(sampler_0, seq::DynamicHMC.TunerSequence, δ)
-    tuners = seq.tuners
-    Base.Cartesian.@nexprs 7 i -> begin
-        tuner_i = tuners[i]
-        sampler_i = DynamicHMC.tune(sampler_{i-1}, tuner_i, δ)
+@generated function stable_tune(sampler_0, seq::DynamicHMC.TunerSequence{T}, δ) where {T}
+    ntuners = length(T.parameters)
+    quote
+        tuners = seq.tuners
+        # @show typeof(sampler_0)
+        Base.Cartesian.@nexprs $ntuners i -> begin
+            tuner_i = tuners[i]
+            sampler_i = DynamicHMC.tune(sampler_{i-1}, tuner_i, δ)
+            # @show typeof(sampler_i)
+        end
+        $(Symbol(:sampler_, ntuners))
     end
-    sampler_7
 end
 function neg_energy(
         κ::DynamicHMC.GaussianKE{Symmetric{T,M},UpperTriangular{T,M}}, p::AbstractFixedSizePaddedVector{N,T}, q = nothing) where {N,T,M<:PaddedMatrices.AbstractMutableFixedSizePaddedMatrix{N,N,T}}
@@ -835,22 +857,25 @@ end
     end
 end
 
-@inline function last_position(sample::Vector, ::Type{Tv}) where {P, T, L, Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,T,L,L}}
-    if isbitstype(Tv)
-        last_position = sample[end].q
-    else
-        N = length(sample)
-        last_position = MutableFixedSizePaddedVector{P,T}(undef)
-        stride = sizeof(eltype(sample))
-        GC.@preserve sample begin
-            ptr = Base.unsafe_convert(Ptr{T}, pointer(sample))
-            copyto!(last_position, PaddedMatrices.PtrVector{P,T,L,L}(ptr + stride*(N-1)))
-        end
+@inline function last_position(sample::Vector{NUTS_Transition{PaddedMatrices.ConstantFixedSizePaddedVector{P,T,L,L},T}}) where {P, T, L}
+    issmall(PaddedMatrices.Static(P)) && return sample[end].q
+    N = length(sample)
+    last_position = MutableFixedSizePaddedVector{P,T}(undef)
+    stride = sizeof(eltype(sample))
+    GC.@preserve sample begin
+        ptr = Base.unsafe_convert(Ptr{T}, pointer(sample))
+        copyto!(last_position, PaddedMatrices.PtrVector{P,T,L,L}(ptr + stride*(N-1)))
     end
     last_position
 end
+# @inline function last_position(sample::Vector{NUTS_Transition{Vector{T},T}}) where {T}
+#     sample[end].q
+# end
+@inline last_position(sample) = sample[end].q
 
-function DynamicHMC.tune(sampler::NUTS{Tv}, tuner::DynamicHMC.StepsizeCovTuner, δ) where {P,T,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,T}}
+function DynamicHMC.tune(
+                sampler::NUTS{Tv,Tf,TR,TH}, tuner::DynamicHMC.StepsizeCovTuner, δ::Tf
+            ) where {P,Tf,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,Tf},TR,Tℓ<:AbstractProbabilityModel,TH<:DynamicHMC.Hamiltonian{Tℓ}}
     # @show typeof(sampler)
     regularize = tuner.regularize
     N = tuner.N
@@ -860,21 +885,40 @@ function DynamicHMC.tune(sampler::NUTS{Tv}, tuner::DynamicHMC.StepsizeCovTuner, 
     report = sampler.report
 
     sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N, DynamicHMC.adapting_ϵ(sampler.ϵ, δ = δ)...)
-    last_pos = last_position(sample, Tv)
-    Σ = sample_cov!(sample, regularize)
-    # Σ = sample_diagcov(sample, regularize)
+    last_pos = last_position(sample)
+    # Σ = sample_cov!(sample, regularize)
+    Σ = sample_diagcov(sample, regularize)
     κ = DynamicHMC.GaussianKE(Σ)
     DynamicHMC.NUTS(rng, DynamicHMC.Hamiltonian(H.ℓ, κ), last_pos, DynamicHMC.get_final_ϵ(A), max_depth, report)
 end
-function DynamicHMC.tune(sampler::NUTS{Tv}, tuner::DynamicHMC.StepsizeTuner, δ) where {P,T,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,T}}
+function DynamicHMC.tune(
+                    sampler::NUTS{Tv,Tf,TR,TH}, tuner::DynamicHMC.StepsizeCovTuner, δ::Tf
+                ) where {P,Tf,Tv <: Vector{Tf},TR,Tℓ<:AbstractProbabilityModel,TH<:DynamicHMC.Hamiltonian{Tℓ}}
+    # @show typeof(sampler)
+    regularize = tuner.regularize
+    N = tuner.N
+    rng = sampler.rng
+    H = sampler.H
+    max_depth = sampler.max_depth
+    report = sampler.report
+
+    sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N, DynamicHMC.adapting_ϵ(sampler.ϵ, δ = δ)...)
+    Σ = DynamicHMC.sample_cov(sample)
+    δΣ = UniformScaling(median!(diag(Σ))) - Σ
+    @. Σ += δΣ * regularize/N
+    κ = DynamicHMC.GaussianKE(Σ, inv(cholesky(Symmetric(Σ)).U))
+    DynamicHMC.NUTS(rng, DynamicHMC.Hamiltonian(H.ℓ, κ), last_position(sample), DynamicHMC.get_final_ϵ(A), max_depth, report)
+end
+function DynamicHMC.tune(
+                        sampler::NUTS{Tv,Tf,TR,TH}, tuner::DynamicHMC.StepsizeTuner, δ::Tf
+                    ) where {P,Tf,Tv,TR,Tℓ<:AbstractProbabilityModel,TH<:DynamicHMC.Hamiltonian{Tℓ}}
     N = tuner.N
     rng = sampler.rng
     H = sampler.H
     max_depth = sampler.max_depth
     report = sampler.report
     sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N, DynamicHMC.adapting_ϵ(sampler.ϵ, δ = δ)...)
-    last_pos = last_position(sample, Tv)
-    DynamicHMC.NUTS(rng, H, last_pos, DynamicHMC.get_final_ϵ(A), max_depth, report)
+    DynamicHMC.NUTS(rng, H, last_position(sample), DynamicHMC.get_final_ϵ(A), max_depth, report)
 end
 
 # @inline function partition!(a::PaddedMatrices.AbstractMutableFixedSizePaddedVector{N,T}, x::T, i, j) where {N,T}
@@ -928,8 +972,28 @@ end
 #     x
 # end
 
+function DynamicHMC.NUTS_init(rng::Random.AbstractRNG, ℓ::AbstractProbabilityModel{D};
+                        q = randn(rng, PaddedMatrices.Static(D)),
+                        κ = DynamicHMC.GaussianKE(PaddedMatrices.Static(D)),
+                        p = rand(rng, κ),
+                        max_depth = DynamicHMC.MAX_DEPTH,
+                        ϵ = DynamicHMC.InitialStepsizeSearch(),
+                        report = DynamicHMC.ReportIO()) where {D}
+    H = DynamicHMC.Hamiltonian(ℓ, κ)
+    z = DynamicHMC.phasepoint_in(H, q, p)
+    if ϵ isa Float64
+        ϵ64 = ϵ
+    else
+        ϵ64 = DynamicHMC.find_initial_stepsize(ϵ, H, z)
+    end
+    NUTS(rng, H, q, ϵ64, max_depth, report)
+end
+
 @generated default_tuners() = DynamicHMC.bracketed_doubling_tuner()
 function NUTS_init_tune_mcmc_default(rng, ℓ, N; δ = 0.8, args...)
+    # if !issmall(dimension(ℓ))
+    #     return NUTS_init_tune_mcmc(rng, ℓ, N; args...)
+    # end
     sampler_init = DynamicHMC.NUTS_init(rng, ℓ; args...)
     sampler_tuned = stable_tune(sampler_init, default_tuners(), δ)
     DynamicHMC.mcmc(sampler_tuned, N), sampler_tuned
@@ -946,18 +1010,23 @@ NUTS_init_tune_mcmc_default(ℓ, N; args...) = NUTS_init_tune_mcmc_default(GLOBA
 #         samples
 #     end
 # end
+
 @generated function vector_container(::PaddedMatrices.Static{N}, nthread = Base.Threads.nthreads()) where {N}
     T = Float64
     Wm1 = VectorizationBase.pick_vector_width(N, T) - 1
     L = (N + Wm1) & ~Wm1
-    :(Vector{Vector{DynamicHMC.NUTS_Transition{PaddedMatrices.ConstantFixedSizePaddedVector{$N,Float64,$L,$L},Float64}}}(undef, nthread))
+    if 2N > VectorizationBase.REGISTER_SIZE
+        return :(Vector{Vector{DynamicHMC.NUTS_Transition{Vector{Float64},Float64}}}(undef, nthread))
+    else
+        return :(Vector{Vector{DynamicHMC.NUTS_Transition{PaddedMatrices.ConstantFixedSizePaddedVector{$N,Float64,$L,$L},Float64}}}(undef, nthread))
+    end
 end
 
-function NUTS_init_tune_threaded(ℓ, N; args...)
-    nthread = Base.Threads.nthreads()
-    chains = vector_container(dimension(ℓ), nthread)
 
-    Base.Threads.@threads for i ∈ 1:nthread
+function NUTS_init_tune_threaded(ℓ, N; nchains = Base.Threads.nthreads(), args...)
+    chains = vector_container(dimension(ℓ), nchains)
+
+    Base.Threads.@threads for i ∈ 1:nchains
         rng = GLOBAL_ScalarVectorPCGs[i]
         if i == 1
             # The first chain logs.
@@ -969,6 +1038,11 @@ function NUTS_init_tune_threaded(ℓ, N; args...)
         chains[i] = samples
     end
     chains
+end
+
+function NUTS_init_tune_distributed(ℓ, N; nchains = nprocs()-1, args...)
+    paired_res = pmap(i -> NUTS_init_tune_mcmc_default(ℓ, N; args...), 1:nchains)
+    getindex.(paired_res, 1), getindex.(paired_res, 2)
 end
 
 function store_transition!(psample::Ptr{Tf}, trans::DynamicHMC.NUTS_Transition{Tv,Tf}) where {M,Tf,L,Tv <: PaddedMatrices.AbstractMutableFixedSizePaddedVector{M,Tf,L,L}}

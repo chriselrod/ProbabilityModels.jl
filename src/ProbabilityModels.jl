@@ -6,14 +6,17 @@ using   MacroTools, DiffRules,
         DistributionParameters, ProbabilityDistributions,
         DynamicHMC, LogDensityProblems,
         Random, VectorizedRNG, RandomNumbers,
-        LinearAlgebra, Statistics#, Distributed
+        LinearAlgebra, Statistics, Distributed
 
 import MacroTools: postwalk, prewalk, @capture, @q
 import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,
                 RESERVED_MULTIPLY_SEED_RESERVED, RESERVED_NMULTIPLY_SEED_RESERVED,
                 AbstractFixedSizePaddedVector, AbstractMutableFixedSizePaddedVector
 
-export @model, NUTS_init_tune_mcmc_default, sample_cov, sample_mean
+export @model, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
+
+abstract type AbstractProbabilityModel{D} <: LogDensityProblems.AbstractLogDensityProblem end
+LogDensityProblems.dimension(::AbstractProbabilityModel{D}) where {D} = D
 
 include("adjoints.jl")
 include("misc_functions.jl")

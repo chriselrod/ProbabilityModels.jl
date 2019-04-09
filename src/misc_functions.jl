@@ -309,6 +309,7 @@ Base.eltype(::Domains{S}) where {S} = eltype(S)
     i > length(S) && return nothing
     S[i], i+1
 end
+Base.Array(::Domains{S}) where {S} = [S...]
 
 function HierarchicalCentering_quote(M::Int, T::DataType, μisvec::Bool, σisvec::Bool, (track_y, track_μ, track_σ), partial)
     μsym = μisvec ? :(μ[m]) : :μ
