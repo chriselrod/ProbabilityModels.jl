@@ -393,16 +393,21 @@ extract_typeval(::Type{Val{T}}) where {T} = T
 extract_typeval(::Type{Val{Type{T}}}) where {T} = T
 
 function load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T)
+    Nparam = gensym(:number_parameters)
+    logjac = gensym(:logjac)
     θq = quote
-        @generated function ProbabilityModels.DistributionParameters.constrain($ℓ::$(model_name){$(variable_type_names...)}, $θ::AbstractVector{$T}) where {$T, $(variable_type_names...)}
+        @generated function ProbabilityModels.DistributionParameters.constrain($ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}, $logjac::Bool = false) where {$Nparam, $T, $(variable_type_names...)}
 
 
             return_partials = false
             model_parameters = Symbol[]
             first_pass = quote end
+            push!(first_pass.args, Expr(:(=), :target, Expr(:call, :zero, $(QuoteNode(T)))))
+            push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.VectorizationBase.vectorizable), $(QuoteNode(θ)))))
             second_pass = quote end
 
-            return_expr = Expr(:tuple,)
+            transformed_params = Expr(:tuple,)
+            return_expr = Expr(:if, $(QuoteNode(logjac)), Expr(:tuple, transformed_params, :target), transformed_params)
 
         end
     end
@@ -419,16 +424,24 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
         # end)
         load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
         push!(θq_body, quote
+            # @show $(variable_type_names[i])
             if $(variable_type_names[i]) <: Val
+                # println($(variable_type_names[i]), "isa Val.")
                 push!(model_parameters, $(QuoteNode(variables[i])))
                 ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false)
-                push!(return_expr.args, $(QuoteNode(variables[i])))
+                push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
             # else
             #     push!(first_pass.args, $load_data)
             end
         end)
     end
+    # push!(θq_body, Expr(:call, :push!, :(first_pass.args), Expr(:if, QuoteNode(logjac), QuoteNode(:(return_expr,target)), QuoteNode(:return_expr))))
+    # push!(θq_body, Expr(:call, :push!, :(first_pass.args), QuoteNode(:($logjac ? (return_expr,target) : return_expr)) ))
+    # push!(θq_body, Expr(:call, :push!, :(first_pass.args), QuoteNode(Expr(:if, QuoteNode(logjac), Expr(:tuple, QuoteNode(:transformed_params), :target), QuoteNode(:transformed_params))) ))
+    # push!(θq_body, :(display(ProbabilityModels.MacroTools.striplines(first_pass))))
     push!(θq_body, :(push!(first_pass.args, return_expr)))
+    # println("\n\nDisplayed\n\n")
+    # push!(θq_body, :(display(ProbabilityModels.MacroTools.striplines(first_pass))))
     push!(θq_body, :(first_pass))
 
     θq
@@ -440,7 +453,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     variables = [v for v ∈ variable_set] # ensure order is constant
     variable_type_names = [Symbol("##Type##", v) for v ∈ variables]
 
-    Nparam = gensym(:number_parameters)
+    Nparam = Symbol("##number_of_parameters##")
     stride = gensym(:LDA)
     L1 = gensym(:L)
     L2 = gensym(:L)

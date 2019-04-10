@@ -299,7 +299,7 @@ using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExp
 @model ITPModel begin
 
     # Non-hierarchical Priors
-    ρ ~ Beta(2, 2)
+    (0.5ρ + 0.5) ~ Beta(2, 2)
     κ ~ Gamma(0.1, 0.1) # μ = 1, σ² = 10
     σ ~ Gamma(0.1, 0.1) # μ = 6, σ² = 2.4
     θ ~ Normal(10)
@@ -330,7 +330,7 @@ using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExp
     μ₁ = ITPExpectedValue(t, β₁, κ, θ)
     μ₂ = ITPExpectedValue(t, β₂, κ, θ)
     #AR = AutoregressiveMatrix(2ρ-1, δₜ)
-    AR = AutoregressiveMatrix(2ρ-1, δₜ)
+    AR = AutoregressiveMatrix(ρ, δₜ)
     Y₁ ~ Normal(μ₁, AR, U)
     Y₂ ~ Normal(μ₂, AR, U)
 
