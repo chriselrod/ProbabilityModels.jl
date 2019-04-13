@@ -301,7 +301,7 @@ using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExp
     # Non-hierarchical Priors
     (0.5ρ + 0.5) ~ Beta(2, 2)
     κ ~ Gamma(0.1, 0.1) # μ = 1, σ² = 10
-    σ ~ Gamma(0.1, 0.1) # μ = 6, σ² = 2.4
+    σ ~ Gamma(1.5, 0.25) # μ = 6, σ² = 2.4
     θ ~ Normal(10)
     L ~ LKJ(2.0)
 
@@ -336,13 +336,27 @@ using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExp
 
 end
 
+# mub1 = HierarchicalCentering(xc.μᵣ₁, xc.μₕ₁, xc.σₕ);
+# mub2 = HierarchicalCentering(xc.μᵣ₂, xc.μₕ₂, xc.σₕ);
+# b1 = HierarchicalCentering(xc.βᵣ₁, mub1, xc.σᵦ, domains);
+# b2 = HierarchicalCentering(xc.βᵣ₂, mub2, xc.σᵦ, domains);
+# mu1 = ITPExpectedValue(times, b1, xc.κ, xc.θ);
+# mu2 = ITPExpectedValue(times, b2, xc.κ, xc.θ);
+#
+# ProbabilityDistributions.Normal(Y₁, mu1, AutoregressiveMatrix(xc.ρ, δₜ), sLinv, Val((false,true,true,true)))
+# ProbabilityDistributions.Normal(Y₂, mu2, AutoregressiveMatrix(xc.ρ, δₜ), sLinv, Val((false,true,true,true)))
+
+
 #     Defined model: ITPModel.
 #     Unknowns: Y₂, domains, μₕ₂, δt, μᵣ₁, βₖ, η₀, αₖ, σᵦ, θ, μᵣ₂, ρ, σₕ, μₕ₁, κ, L, Y₁, βᵣ₂, t, βᵣ₁.
 
 using ProbabilityModels, DistributionParameters, ProbabilityDistributions,
     LoopVectorization, LinearAlgebra, Random, LogDensityProblems, SLEEFPirates, SIMDPirates, StructuredMatrices, ScatteredArrays, PaddedMatrices
+using DistributionParameters: LKJ_Correlation_Cholesky, RealFloat, PositiveFloat, UnitFloat, RealVector, PositiveVector
+using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExpectedValue, ∂ITPExpectedValue
 
 domains = ProbabilityModels.Domains(2,2,2,3);
+# domains = ProbabilityModels.Domains(2,2,3);
 T = 24; K = sum(domains); D = length(domains);
 
 @generated function randexp_sum(::Val{L}, ::Val{R}) where {L,R}
@@ -358,7 +372,7 @@ end
 σ = 0.03125 * randexp_sum(Val(K), Val(8));
 θ = 2.0 * (@Constant randn(K));
 S = (@Constant randn(K,2K)) |> x -> x * x';
-L, lkjac = DistributionParameters.lkj_constrain(0.5 - @Constant rand(36));
+L, lkjac = DistributionParameters.lkj_constrain(0.5 - @Constant rand( ((K)*(K-1))>>1 ));
 σL = Diagonal(σ) * L; U = StructuredMatrices.inv(σL);
 muh1, muh2 = -3.0, 9.0
 m01 = muh1 + 1.0 * (@Constant randn(D)); # placebo
@@ -388,6 +402,7 @@ ProbabilityDistributions.Normal(Y1c, mu1, ARmat, U, Val((false,true,false,false)
 ProbabilityDistributions.∂Normal(Y1c, mu1, ARmat, U, Val((false,true,false,false)))
 ProbabilityDistributions.Normal(Y1c, mu1, ARmat, U, Val((false,true,true,true)))
 ProbabilityDistributions.∂Normal(Y1c, mu1, ARmat, U, Val((false,true,true,true)))
+
 # using BenchmarkTools
 # @benchmark ProbabilityDistributions.Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
 # @benchmark ProbabilityDistributions.∂Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
@@ -403,11 +418,22 @@ ProbabilityDistributions.∂Normal(Y1c, mu1, ARmat, U, Val((false,true,true,true
     σ = PositiveVector{K}
     #η₀ = 2.0, αₖ = 0.1, βₖ = 0.1
 );
+## domains = (2,2,3)
+# Unknowns: Y₂, domains, μₕ₂, μᵣ₁, σ, σᵦ, θ, μᵣ₂, ρ, σₕ, μₕ₁, κ, L, δₜ, Y₁, βᵣ₂, t, βᵣ₁.
+# D = 3, K = 7
+# μₕ₂ = 1, μᵣ = 2:4, σ = 5:11, σᵦ = 12, θ = 13:19, μᵣ₂ = 20:22, ρ = 23, σₕ = 24, μₕ₁ = 25, κ = 26:32
+# L = 33:53,  βᵣ₂ = 54:60, βᵣ₁ = 61:67
+
+## domains = (2,2,2,3)
 # Unknowns: Y₂, domains, μₕ₂, μᵣ₁, σ, σᵦ, θ, μᵣ₂, ρ, σₕ, μₕ₁, κ, L, δₜ, Y₁, βᵣ₂, t, βᵣ₁.
 # D = 4, K = 9
 # μₕ₂ = 1, μᵣ = 2:5, σ = 6:14, σᵦ = 15, θ = 16:24, μᵣ₂ = 25:28, ρ = 29, σₕ = 30, μₕ₁ = 31, κ = 32:40
 # L = 41:76,  βᵣ₂ = 77:85, βᵣ₁ = 86:94
 ## 33 through 39: wrong
+
+##
+
+using BenchmarkTools
 dimension(ℓ)
 # a = fill(1.0, dimension(ℓ));
 a = randn(dimension(ℓ));
@@ -415,7 +441,7 @@ logdensity(LogDensityProblems.Value, ℓ, a)
 vg = logdensity(LogDensityProblems.ValueGradient, ℓ, a)
 vgg = vg.gradient;
 
-# @benchmark logdensity(LogDensityProblems.ValueGradient, $ℓ, $a)
+@benchmark logdensity(LogDensityProblems.ValueGradient, $ℓ, $a)
 
 function gradi(ℓ, a, a2, i)
     step = cbrt(eps(a[i]))
@@ -448,7 +474,7 @@ using MCMCDiagnostics
 NUTS_statistics(mcmc_chain)
 tuned_sampler
 chain_matrix = get_position_matrix(mcmc_chain);
-[effective_sample_size(chain_matrix[:,i]) for i in 1:10]'
+[effective_sample_size(chain_matrix[:,i]) for i in 1:20]'
 
 
 function chain_to_array(chain::Array{NUTS_Transition{ConstantFixedSizePaddedArray{Tuple{N},Float64,1,L,L},Float64},1}) where {N,L}

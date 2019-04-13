@@ -27,6 +27,10 @@ include("dynamic_hmc_interface.jl")
 
 function __init__()
     @eval const GLOBAL_ScalarVectorPCGs = threadrandinit()
+    # @eval const GLOBAL_WORK_BUFFER = Vector{Vector{UInt8}}(Base.Threads.nthreads())
+    # Threads.@threads for i ∈ eachindex(GLOBAL_WORK_BUFFER)
+    #     GLOBAL_WORK_BUFFER[i] = Vector{UInt8}(0)
+    # end
 end
 
 end # module
