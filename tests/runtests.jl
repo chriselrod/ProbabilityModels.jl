@@ -403,9 +403,9 @@ ProbabilityDistributions.∂Normal(Y1c, mu1, ARmat, U, Val((false,true,false,fal
 ProbabilityDistributions.Normal(Y1c, mu1, ARmat, U, Val((false,true,true,true)))
 ProbabilityDistributions.∂Normal(Y1c, mu1, ARmat, U, Val((false,true,true,true)))
 
-# using BenchmarkTools
-# @benchmark ProbabilityDistributions.Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
-# @benchmark ProbabilityDistributions.∂Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
+using BenchmarkTools
+@benchmark ProbabilityDistributions.Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
+@benchmark ProbabilityDistributions.∂Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
 
 ℓ = ITPModel(
     domains = domains, Y₁ = Y1c, Y₂ = Y2c, t = t, δₜ = δₜ,
@@ -469,12 +469,23 @@ compare_grads(ℓ, randn(dimension(ℓ)))
 
 using LogDensityProblems, DynamicHMC
 # @time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 500);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
-@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 500);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
+@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 2000);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
 using MCMCDiagnostics
 NUTS_statistics(mcmc_chain)
 tuned_sampler
 chain_matrix = get_position_matrix(mcmc_chain);
 [effective_sample_size(chain_matrix[:,i]) for i in 1:20]'
+
+
+using VectorizationBase, PaddedMatrices, StructuredMatrices, BenchmarkTools
+δ = MutableFixedSizePaddedMatrix{T,K,NTuple{8,Core.VecElement{Float64}},T,(T*K)}(undef);
+δU = MutableFixedSizePaddedMatrix{T,K,NTuple{8,Core.VecElement{Float64}},T,(T*K)}(undef);
+Yᵥ = VectorizationBase.vectorizable(Y1c);
+remmask = Y1c.mask;
+@benchmark PaddedMatrices.vload!($δ, $Yᵥ + 0)
+@benchmark PaddedMatrices.diff!($δ, $mu1, $δ)
+@benchmark PaddedMatrices.mask!($δ, $remmask)
+@benchmark mul!($δU, $δ, $U)
 
 
 function chain_to_array(chain::Array{NUTS_Transition{ConstantFixedSizePaddedArray{Tuple{N},Float64,1,L,L},Float64},1}) where {N,L}

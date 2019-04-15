@@ -66,12 +66,12 @@ function Base.:*(A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Red
     end
     ConstantFixedSizePaddedVector(reduction)'
 end
-@generated function Base.:*(a::LinearAlgebra.Adjoint{T,<:AbstractFixedSizePaddedVector{M,T}}, ::Reducer{S}) where {M,T,S}
+@generated function Base.:*(a::LinearAlgebra.Adjoint{T,<:AbstractVector{T}}, ::Reducer{S}) where {T,S}
     S == true && return quote
         $(Expr(:meta,:inline))
         sum(a.parent)
     end
-    @assert sum(S) == M
+    # @assert sum(S) == M
     N = length(S)
     q = quote end
     outtup = Expr(:tuple,)
@@ -97,11 +97,20 @@ end
         end
     end
 end
+@generated function Base.:*(A::AbstractMatrix{T}, ::Reducer{S}) where {T,S}
+    S == true && return :(sum(A))
+    # y = Vector{T}(undef, 0)
+    y = MutableFixedSizePaddedVector{sum(S),T}(undef)
+    quote
+        # resize!(y, size(A,1))
+        sum!($y, A)' * Reducer{$S}()
+    end
+end
 @generated function Base.:*(
-            a::LinearAlgebra.Adjoint{T,<:AbstractFixedSizePaddedVector{M,T}},
-            b::ReducerWrapper{S, <: AbstractFixedSizePaddedVector{M,T}}
-        ) where {M,T,S}
-    @assert sum(S) == M
+            a::LinearAlgebra.Adjoint{T, <: AbstractVector{T}},
+            b::ReducerWrapper{S, <: AbstractVector{T}}
+        ) where {T,S}
+    # @assert sum(S) == M
     N = length(S)
     q = quote end
     outtup = Expr(:tuple,)
@@ -125,6 +134,14 @@ end
             $q
             ConstantFixedSizePaddedVector{$N,$T,$P}($outtup)'
         end
+    end
+end
+@generated function Base.:*(A::AbstractMatrix{T}, rw::ReducerWrapper{S}) where {T,S}
+    # y = Vector{T}(undef, 0)
+    y = MutableFixedSizePaddedVector{sum(S),T}(undef)
+    quote
+        # resize!(y, size(A,1))
+        sum!($y, A)' * rw
     end
 end
 

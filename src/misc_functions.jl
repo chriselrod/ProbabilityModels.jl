@@ -1,4 +1,71 @@
 
+
+function ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMissingness{S,K,nT}) where {S,T,K,nT}
+    incr = sm.incr
+    coef = sm.coef
+    ind_kt = 0
+    ind = 0
+    missingness = sm.missingness
+    times = sm.times
+    for k ∈ 1:K
+        numerator = expm1(-κ[k] * times[nT])
+        for t ∈ 1:nT-1
+            ind_kt += 1
+            missingness[ind_kt] || continue
+            ind += 1
+            coef[ind] = numerator / expm1(-κ[k] * times[t])
+            incr[ind] = θ[k]
+        end
+        ind_kt += 1
+        missingness[ind_kt] || continue
+        ind += 1
+        coef[ind] = one(T)
+        incr[ind] = θ[k]
+    end
+    δ = Y.δ
+    data = Y.data
+    PaddedMatrices.muladd!(δ, coef, data, incr)
+    δ
+end
+function ∂ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMissingness{S,K,nT}, ::Val{(true,true)}) where {S,T,K,nT}
+    incr = sm.incr
+    coef = sm.coef
+    ind_kt = 0
+    ind = 0
+    missingness = sm.missingness
+    times = sm.times
+    ∂κ = sm.∂κ
+    for k ∈ 1:K
+        d = times[nT]
+        ekd = exp(-κ[k] * d)
+        numerator = one(T) - ekd
+        ekd *= d
+        for t ∈ 1:nT-1
+            ind_kt += 1
+            missingness[ind_kt] || continue
+            ind += 1
+            tt = times[t]
+            ekt = exp(-κ[k] * tt)
+            denominator = 1 / (one(T) - ekt)
+            coeft = numerator * denominator
+            coef[ind] = coeft
+            incr[ind] = θ[k]
+            @fastmath ∂κ[ind] = ekd * denominator - coeft * denominator * tt * ekt
+        end
+        ind_kt += 1
+        missingness[ind_kt] || continue
+        ind += 1
+        coef[ind] = one(T)
+        ∂κ[ind] = zero(T)
+        incr[ind] = θ[k]
+    end
+    δ = Y.δ
+    data = Y.data
+    PaddedMatrices.muladd!(δ, coef, data, incr)
+    δ, Reducer{S}(), ReducerWrapper{S}(∂κ)
+end
+
+
 function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Nparamargs,Bool}, partial::Bool) where {Nparamargs}
     if Nparamargs == 2
         (track_β, track_κ) = track
@@ -517,3 +584,5 @@ end
     @assert length(S) == N
     HierarchicalCentering_quote(M, P, T, false, true, S, track)
 end
+
+
