@@ -1,4 +1,11 @@
 
+struct StructuredMissingness{S,K,nT,P,PL,T,nTL}
+    incr::MutableFixedSizePaddedVector{P,T,PL,PL}
+    coef::MutableFixedSizePaddedVector{P,T,PL,PL}
+    missingness::Vector{Bool}
+    # missingness::BitVector
+    times::ConstantFixedSizePaddedVector{nT,T,nTL,nTL}
+end
 
 function ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMissingness{S,K,nT}) where {S,T,K,nT}
     incr = sm.incr
