@@ -447,6 +447,13 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
     θq
 end
 
+@inline function new_gradient(vgb::LogDensityProblems.ValueGradientBuffer, x::AbstractVector)
+    vgb.buffer
+end
+@inline function new_gradient(vg, x::AbstractVector)
+    PaddedMatrices.mutable_similar(x)
+end
+
 function generate_generated_funcs_expressions(model_name, expr)
     # Determine the set of variables that are either parameters or data.
     variable_set = determine_variables(expr)
@@ -543,6 +550,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         @generated function LogDensityProblems.logdensity(::Type{LogDensityProblems.Value}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}) where {$Nparam, $T, $(variable_type_names...)}
 
 
+            TLθ = $Nparam
             return_partials = false
             model_parameters = Symbol[]
             first_pass = quote end
@@ -551,10 +559,16 @@ function generate_generated_funcs_expressions(model_name, expr)
 
         end
     end
+    vgb = Symbol("##vgb##")
     θq_valuegradient = quote
-        @generated function LogDensityProblems.logdensity(::Type{LogDensityProblems.ValueGradient}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}) where {$Nparam, $T, $(variable_type_names...)}
+        @generated function LogDensityProblems.logdensity(
+                        $vgb::Type{LogDensityProblems.ValueGradient},
+                        $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
+                        $θ::AbstractVector{$T}
+                    ) where {$Nparam, $T, $(variable_type_names...)}
 
 
+            TLθ = $Nparam
             return_partials = true
             model_parameters = Symbol[]
             first_pass = quote end
@@ -563,7 +577,24 @@ function generate_generated_funcs_expressions(model_name, expr)
 
         end
     end
-    for (θq, return_partials) ∈ ((θq_value, false), (θq_valuegradient, true))
+    θq_valuegradientbuffer = quote
+        @generated function LogDensityProblems.logdensity(
+                        $vgb::LogDensityProblems.ValueGradientBuffer,
+                        $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
+                        $θ::AbstractVector{$T}
+                    ) where {$Nparam, $T, $(variable_type_names...)}
+
+
+            TLθ = $Nparam
+            return_partials = true
+            model_parameters = Symbol[]
+            first_pass = quote end
+            second_pass = quote end
+
+
+        end
+    end
+    for (θq, return_partials) ∈ ((θq_value, false), (θq_valuegradient, true), (θq_valuegradientbuffer, true))
 
         θq_body = θq.args[end].args[end].args[end].args;
         push!(θq_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
@@ -624,7 +655,10 @@ function generate_generated_funcs_expressions(model_name, expr)
                     $first_pass
                     # $(Symbol("##∂θparameter##m")) = $ℓ_sym.∇RESERVED
                     # $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
-                    $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.mutable_similar($θ_sym)
+                    # $(2TLθ > ProbabilityModels.VectorizationBase.REGISTER_SIZE ? )
+                    # $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.mutable_similar($θ_sym)
+                    # $(Symbol("##∂θparameter##m")) = $(Symbol("##vgb##")).buffer
+                    $(Symbol("##∂θparameter##m")) = ProbabilityModels.new_gradient($(Symbol("##vgb##")), $θ_sym)
                     $(Symbol("##∂θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
                     $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
                     # $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.Reducer{:row}()
@@ -699,7 +733,6 @@ function generate_generated_funcs_expressions(model_name, expr)
             θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
             T_sym = $(QuoteNode(T))
             ℓ_sym = $(QuoteNode(ℓ))
-            TLθ = $Nparam
             $processing
             final_quote = quote
                 # @fastmath @inbounds begin
@@ -745,12 +778,12 @@ function generate_generated_funcs_expressions(model_name, expr)
 
 
     # struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, dim_q, variables
-    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, variables
+    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, θq_valuegradientbuffer, constrain_quote, variables
 end
 
 macro model(model_name, expr)
     # struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_q, dim_q, variables = generate_generated_funcs_expressions(model_name, expr)
-    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_q, variables = generate_generated_funcs_expressions(model_name, expr)
+    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, θq_valuegradientbuffer, constrain_q, variables = generate_generated_funcs_expressions(model_name, expr)
     # display(ProbabilityModels.MacroTools.striplines(struct_kwarg_quote))
     # display(ProbabilityModels.MacroTools.striplines(θq_value))
     # display(ProbabilityModels.MacroTools.striplines(θq_valuegradient))
@@ -760,7 +793,7 @@ macro model(model_name, expr)
     """
     esc(quote
         # $struct_quote; $dim_q; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $constrain_q;
-        $struct_quote; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $constrain_q;
+        $struct_quote; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $θq_valuegradientbuffer; $constrain_q;
         ProbabilityModels.Distributed.myid() == 1 && println($printstring)
     end)
 end

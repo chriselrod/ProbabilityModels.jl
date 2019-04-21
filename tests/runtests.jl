@@ -354,6 +354,7 @@ using ProbabilityModels, DistributionParameters, ProbabilityDistributions,
     LoopVectorization, LinearAlgebra, Random, LogDensityProblems, SLEEFPirates, SIMDPirates, StructuredMatrices, ScatteredArrays, PaddedMatrices
 using DistributionParameters: LKJ_Correlation_Cholesky, RealFloat, PositiveFloat, UnitFloat, RealVector, PositiveVector
 using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExpectedValue, ∂ITPExpectedValue
+BLAS.set_num_threads(1)
 
 domains = ProbabilityModels.Domains(2,2,2,3);
 # domains = ProbabilityModels.Domains(2,2,3);
@@ -406,6 +407,67 @@ ProbabilityDistributions.∂Normal(Y1c, mu1, ARmat, U, Val((false,true,true,true
 using BenchmarkTools
 @benchmark ProbabilityDistributions.Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
 @benchmark ProbabilityDistributions.∂Normal($Y1c, $mu1, $ARmat, $U, Val((false,true,true,true)))
+
+
+Y1r = reshape(reinterpret(Float64, Y1), (T, K, length(Y1)));
+Y1p = permutedims(Y1r, (2,3,1));
+Y1p2 = Array{Float64,3}(undef, K,length(Y1),T);
+Y1p3 = Array{Float64,3}(undef, K,length(Y1),T);
+mu1a2 = reshape(Array(mu1)', (K,1,T));
+ARmata = Bidiagonal(vcat(1.0,Array(ARmat.spacing.ρᵗ)), -1.0 .* ARmat.spacing.rinvOmρ²ᵗ .* ARmat.spacing.ρᵗ, :U)
+function lpdfn(Y1p3::AbstractArray{Tf,3}, Y1p2::AbstractArray{Tf,2}, Y1p, mu1, ARmat, U) where {Tf}
+    @inbounds Y1p3 .= Y1p .- mu1
+    K,N,T = size(Y1p3)
+    ρᵗ = ARmat.spacing.ρᵗ
+    rinvOmρ²ᵗ = ARmat.spacing.rinvOmρ²ᵗ
+    Y1p3_2 = reshape(Y1p3, (K,N*T))
+    Y1p2_3 = reshape(Y1p2, (K,N,T))
+    @inbounds Y1p2_3[:,:,1] .= Y1p3[:,:,1]
+    Y1p3_t2 = reshape(Y1p3, (K*N,T))
+    Y1p2_t2 = reshape(Y1p2, (K*N,T))
+    @inbounds for t ∈ 1:T-1
+        rt = ρᵗ[t]
+        rit = rinvOmρ²ᵗ[t]
+        @fastmath @simd ivdep for i ∈ 1:K*N
+            Y1p2_t2[i,t+1] =  rit * (Y1p3_t2[i,t+1] - rt* Y1p3_t2[i,t])
+        end
+    end
+    mul!(Y1p3_2, U', Y1p2)
+    -0.5sum(abs2, Y1p3_2)
+end
+lpdfn(Y1p3, Y1p2, Y1p, mu1a2, ARmat, Ua)
+
+
+Y1r = reshape(reinterpret(Float64, Y1), (T, K, length(Y1)));
+Y1p = permutedims(Y1r, (1,3,2));
+Y1p2 = Array{Float64,3}(undef, T,length(Y1),K);
+Y1p3 = Array{Float64,3}(undef, T,length(Y1),K);
+mu1a2 = reshape(Array(mu1), (T,1,K));
+Ua = Array(U);
+ARmata = Bidiagonal(vcat(1.0,Array(ARmat.spacing.rinvOmρ²ᵗ)), -1.0 .* ARmat.spacing.rinvOmρ²ᵗ .* ARmat.spacing.ρᵗ, :L)
+function lpdfn2(Y1p3::AbstractArray{Tf,3}, Y1p2::AbstractArray{Tf,3}, Y1p, mu1, ARmat, U) where {Tf}
+    T,N,K = size(Y1p3)
+    @inbounds Y1p3 .= Y1p .- mu1
+    mul!(reshape(Y1p2,(T,N*K)), ARmat, reshape(Y1p3,(T,N*K)))
+    mul!(reshape(Y1p3,(T*N,K)), reshape(Y1p2,(T*N,K)), U)
+    N*(T*logdet(UpperTriangular(U)) + K*sum(log, ARmat.dv)) - 0.5dot(Y1p3, Y1p3)
+end
+lpdfn2(Y1p3, Y1p2, Y1p, mu1a2, ARmata, Ua)
+
+Y1c2 = ChunkedArray(Y1);
+using VectorizationBase
+function mul2!(Y1c2, Y1c, U)
+    vY1c = VectorizationBase.vectorizable(Y1c)
+    vY1c2 = VectorizationBase.vectorizable(Y1c2)
+    V = Vec{8,Float64}
+    for i ∈ 0:(length(Y1c)>>3)-1
+        mul!(vload(V, vY1c2+8i), vload(V,vY1c + 8i), U)
+    end
+end
+Y1pm = reshape(Y1p, (size(Y1p,1)*size(Y1p,2),size(Y1p,3)));
+Y1pmUa = similar(Y1pm);
+@benchmark mul!($Y1pmUa, $Y1pm, $Ua)
+@benchmark mul2!($Y1c2, $Y1c, $U)
 
 ℓ = ITPModel(
     domains = domains, Y₁ = Y1c, Y₂ = Y2c, t = t, δₜ = δₜ,
@@ -469,7 +531,8 @@ compare_grads(ℓ, randn(dimension(ℓ)))
 
 using LogDensityProblems, DynamicHMC
 # @time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 500);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
-@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 2000);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
+@time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 2000, δ = 0.75);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
+@time mcmc_chain2, tuned_sampler2 = NUTS_init_tune_mcmc_default(ℓ, 2000, δ = 0.75);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
 using MCMCDiagnostics
 NUTS_statistics(mcmc_chain)
 tuned_sampler
