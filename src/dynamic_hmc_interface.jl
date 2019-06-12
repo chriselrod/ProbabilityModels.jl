@@ -990,12 +990,12 @@ function DynamicHMC.NUTS_init(rng::Random.AbstractRNG, ℓ::AbstractProbabilityM
 end
 
 @generated default_tuners() = DynamicHMC.bracketed_doubling_tuner()
-function NUTS_init_tune_mcmc_default(rng, ℓ, N; δ = 0.8, args...)
+function NUTS_init_tune_mcmc_default(rng, ℓ, N; δ = 0.8, tuners = default_tuners(), args...)
     # if !issmall(dimension(ℓ))
     #     return NUTS_init_tune_mcmc(rng, ℓ, N; args...)
     # end
     sampler_init = DynamicHMC.NUTS_init(rng, ℓ; args...)
-    sampler_tuned = stable_tune(sampler_init, default_tuners(), δ)
+    sampler_tuned = stable_tune(sampler_init, tuners, δ)
     DynamicHMC.mcmc(sampler_tuned, N), sampler_tuned
 end
 NUTS_init_tune_mcmc_default(ℓ, N; args...) = NUTS_init_tune_mcmc_default(GLOBAL_ScalarVectorPCGs[1], ℓ, N; args...)

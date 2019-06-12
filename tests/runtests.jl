@@ -360,37 +360,31 @@ domains = ProbabilityModels.Domains(2,2,2,3);
 # domains = ProbabilityModels.Domains(2,2,3);
 T = 24; K = sum(domains); D = length(domains);
 
-@generated function randexp_sum(::Val{L}, ::Val{R}) where {L,R}
-    quote
-        out = @Constant randexp($L)
-        Base.Cartesian.@nexprs $(R-1) r -> out += @Constant randexp($L)
-    end
-end
 
-ρ = 0.7;
-κ = 0.03125 * randexp_sum(Val(K), Val(8));
-σd = 0.0625 * (randexp()+randexp()+randexp()+randexp());
-σ = 0.03125 * randexp_sum(Val(K), Val(8));
-θ = 2.0 * (@Constant randn(K));
-S = (@Constant randn(K,2K)) |> x -> x * x';
-L, lkjac = DistributionParameters.lkj_constrain(0.5 - @Constant rand( ((K)*(K-1))>>1 ));
-σL = Diagonal(σ) * L; U = StructuredMatrices.inv(σL);
+κ = (1/32) * reduce(+, (@Constant randexp(K)) for i ∈ 1:8) # κ ~ Gamma(8, 32)
+σd = sum(@Constant randexp(4)) / 16 # σd ~ Gamma(4,16)
+θ = 2.0 * (@Constant randn(K)) # θ ~ Normal(0,2)
+S = (@Constant randn(K,4K)) |> x -> x * x'
+S *= (1/16)
+pS = StructuredMatrices.SymmetricMatrixL(S)
+L = PaddedMatrices.chol(S); U = PaddedMatrices.invchol(pS)
 muh1, muh2 = -3.0, 9.0
-m01 = muh1 + 1.0 * (@Constant randn(D)); # placebo
-m02 = muh2 + 1.0 * (@Constant randn(D)); #treatment
+m01 = muh1 + (@Constant randn(D)); # placebo
+m02 = muh2 + (@Constant randn(D)); #treatment
 b1 = HierarchicalCentering((@Constant randn(K)), m01, σd, domains); # placebo
 b2 = HierarchicalCentering((@Constant randn(K)), m02, σd, domains); # treatment
 
-δₜ = 0.06125 * randexp_sum(Val(T-1), Val(8));
+δₜ = 0.06125 *  reduce(+, (@Constant randexp(T-1)) for i ∈ 1:8);
 t = vcat(zero(ConstantFixedSizePaddedVector{1,Float64}), cumsum(δₜ));
 mu1 = ProbabilityModels.ITPExpectedValue(t, b1, κ, θ);
 mu2 = ProbabilityModels.ITPExpectedValue(t, b2, κ, θ);
 
-ARmat = StructuredMatrices.AutoregressiveMatrix(ρ, δₜ);
+ρ = 0.7; ARmat = StructuredMatrices.AutoregressiveMatrix(ρ, δₜ);
 # ARcholinv = ConstantFixedSizePaddedMatrix(ARmat);
 ARchol = PaddedMatrices.chol(ConstantFixedSizePaddedMatrix(ARmat));
 
-pσU = MutableFixedSizePaddedMatrix{K,K,Float64}(undef); pσU .= σL'; cσU = ConstantFixedSizePaddedMatrix(pσU);
+
+pσU = MutableFixedSizePaddedMatrix{K,K,Float64}(undef); pσU .= L'; cσU = ConstantFixedSizePaddedMatrix(pσU);
 Y1 = [ARchol * (@Constant randn(T, K)) * cσU + mu1 for n in 1:56];
 Y2 = [ARchol * (@Constant randn(T, K)) * cσU + mu2 for n in 1:56];
 Y1c = ChunkedArray(Y1);
@@ -506,7 +500,8 @@ vgg = vg.gradient;
 @benchmark logdensity(LogDensityProblems.ValueGradient, $ℓ, $a)
 
 function gradi(ℓ, a, a2, i)
-    step = cbrt(eps(a[i]))
+    step = sqrt(eps(a[i]))
+    # step = cbrt(eps(a[i]))
     v1 = logdensity(LogDensityProblems.Value, ℓ, a)
     a2[i] += step
     v2 = logdensity(LogDensityProblems.Value, ℓ, a2)
@@ -529,15 +524,25 @@ compare_grads(ℓ, a)
 compare_grads(ℓ, randn(dimension(ℓ)))
 
 
-using LogDensityProblems, DynamicHMC
+using LogDensityProblems, DynamicHMC, MCMCDiagnostics
 # @time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 500);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
 @time mcmc_chain, tuned_sampler = NUTS_init_tune_mcmc_default(ℓ, 2000, δ = 0.75);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
-@time mcmc_chain2, tuned_sampler2 = NUTS_init_tune_mcmc_default(ℓ, 2000, δ = 0.75);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
-using MCMCDiagnostics
 NUTS_statistics(mcmc_chain)
 tuned_sampler
 chain_matrix = get_position_matrix(mcmc_chain);
 [effective_sample_size(chain_matrix[:,i]) for i in 1:20]'
+
+@time mcmc_chain2, tuned_sampler2 = NUTS_init_tune_mcmc_default(ℓ, 2000, δ = 0.75);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
+NUTS_statistics(mcmc_chain2)
+tuned_sampler2
+chain_matrix2 = get_position_matrix(mcmc_chain2);
+[effective_sample_size(chain_matrix2[:,i]) for i in 1:20]'
+
+@time mcmc_chain3, tuned_sampler3 = NUTS_init_tune_mcmc_default(ℓ, 2000, δ = 0.75);#, max_depth = 15);#, ϵ = 0.007);#, δ = 0.99);
+NUTS_statistics(mcmc_chain3)
+tuned_sampler3
+chain_matrix3 = get_position_matrix(mcmc_chain3);
+[effective_sample_size(chain_matrix3[:,i]) for i in 1:20]'
 
 
 using VectorizationBase, PaddedMatrices, StructuredMatrices, BenchmarkTools

@@ -85,6 +85,7 @@ flatten_subexpression!(::Any, s::Symbol) = s
 """
 Converts an expression into a sequence of single assignment codes (SACs)
 
+To be replaced with Meta.lower(ProbabilityModels, expr)
 """
 function flatten_expression(expr)
     q_flattened = @q begin end
@@ -709,7 +710,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     # target = zero($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                     $first_pass
-                    LogDensityProblems.Value( isfinite($(name_dict[:target])) ? $(name_dict[:target]) : -Inf )
+                    LogDensityProblems.Value( isfinite($(name_dict[:target])) ? $(name_dict[:target]) : $T_sym(-Inf) )
                 end
             end
         end
