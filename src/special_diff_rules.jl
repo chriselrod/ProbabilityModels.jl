@@ -176,5 +176,70 @@ function diagonal_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $seeda )))
     end
     push!(first_pass.args, :($out = LinearAlgebra.Diagonal($a)))
+    nothing
 end
 SPECIAL_DIFF_RULES[:Diagonal] = diagonal_diff_rule!
+
+function vec_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    @assert length(A) == 1
+    a = A[1]
+    if a ∈ tracked_vars
+        ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
+        push!(tracked_vars, out)
+        seeda = Symbol("###seed###", a)
+        seedout = Symbol("###seed###", out)
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
+        push!(first_pass.args, :(($out,$∂) = ProbabilityModels.∂vec($a)))
+    else
+        push!(first_pass.args, :($out = vec($a)))
+    end
+    nothing
+end
+SPECIAL_DIFF_RULES[:vec] = vec_diff_rule!
+
+
+function dynamic_cov_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    # For now, the only method is autoregressive * longitudinal model
+    # so we assert that there are precisely three args.
+    length(A) == 3 || throw("Please request or add support for different DynamicCovarianceMatrix functions!")
+#    @assert length(A) == 3
+    @assert A[3] ∉ tracked_vars
+    func_output = Expr(:tuple, out)
+    tracked = ntuple(i -> A[i] ∈ tracked_vars, Val(2))
+    any(tracked) && push!(tracked_vars, out)
+    seedout = Symbol("###seed###", out)
+    for i ∈ 1:2
+        a = A[i]
+        if tracked[i]
+            ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
+            push!(func_output.args, ∂)
+            seeda = Symbol("###seed###", a)
+            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
+        end
+    end
+    push!(first_pass.args, :($func_output = ∂DynamicCovarianceMatrix($(A...), Val{$tracked}()) ) )
+    nothing
+end
+SPECIAL_DIFF_RULES[:DynamicCovarianceMatrix] = dynamic_cov_diff_rule!
+
+function getindex_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    for i ∈ 2:length(A)
+        @assert A[i] ∉ tracked_vars
+    end
+    a = A[1]
+    if a ∈ tracked_vars
+        ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
+        push!(tracked_vars, out)
+        seeda = Symbol("###seed###", a)
+        seedout = Symbol("###seed###", out)
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
+        push!(first_pass.args, :(($out, $∂) = ∂getindex($(A...))))
+    else
+        push!(first_pass.args, :($out = getindex($(A...))))
+    end
+    nothing
+end
+SPECIAL_DIFF_RULES[:getindex] = getindex_diff_rule!
+
+
+

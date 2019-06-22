@@ -548,7 +548,7 @@ function generate_generated_funcs_expressions(model_name, expr)
 
     # we have to split these, because of dispatch ambiguity errors
     θq_value = quote
-        @generated function LogDensityProblems.logdensity(::Type{LogDensityProblems.Value}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}) where {$Nparam, $T, $(variable_type_names...)}
+        @generated function ProbabilityModels.LogDensityProblems.logdensity(::Type{ProbabilityModels.LogDensityProblems.Value}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}) where {$Nparam, $T, $(variable_type_names...)}
 
 
             TLθ = $Nparam
@@ -562,8 +562,8 @@ function generate_generated_funcs_expressions(model_name, expr)
     end
     vgb = Symbol("##vgb##")
     θq_valuegradient = quote
-        @generated function LogDensityProblems.logdensity(
-                        $vgb::Type{LogDensityProblems.ValueGradient},
+        @generated function ProbabilityModels.LogDensityProblems.logdensity(
+                        $vgb::Type{ProbabilityModels.LogDensityProblems.ValueGradient},
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                         $θ::AbstractVector{$T}
                     ) where {$Nparam, $T, $(variable_type_names...)}
@@ -579,8 +579,8 @@ function generate_generated_funcs_expressions(model_name, expr)
         end
     end
     θq_valuegradientbuffer = quote
-        @generated function LogDensityProblems.logdensity(
-                        $vgb::LogDensityProblems.ValueGradientBuffer,
+        @generated function ProbabilityModels.LogDensityProblems.logdensity(
+                        $vgb::ProbabilityModels.LogDensityProblems.ValueGradientBuffer,
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                         $θ::AbstractVector{$T}
                     ) where {$Nparam, $T, $(variable_type_names...)}
@@ -650,9 +650,12 @@ function generate_generated_funcs_expressions(model_name, expr)
                 # TLθ = ProbabilityModels.PaddedMatrices.type_length($θ) # This refers to the type of the input
                 # TLθ = ProbabilityModels.PaddedMatrices.tonumber(ProbabilityModels.DynamicHMC.dimension($ℓ))
                 ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+                first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(Symbol("##stack_pointer##")))
+                second_pass = PaddedMatrices.stack_pointer_pass(second_pass, $(Symbol("##stack_pointer##")))
                 expr_out = quote
                     # target = zero($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
+                    $(Symbol("##stack_pointer##")) = ProbabilityModels.STACK_POINTER
                     $first_pass
                     # $(Symbol("##∂θparameter##m")) = $ℓ_sym.∇RESERVED
                     # $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
@@ -679,7 +682,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                 # VectorizationBase.REGISTER_SIZE is in bytes, so this is asking if 4 registers can hold the parameter vector
                 if 2TLθ > ProbabilityModels.VectorizationBase.REGISTER_SIZE
                     push!(expr_out.args, quote
-                        LogDensityProblems.ValueGradient(
+                        ProbabilityModels.LogDensityProblems.ValueGradient(
                             isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##m"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
                             $(Symbol("##∂θparameter##m"))
                         )
@@ -687,7 +690,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                 else
                     push!(expr_out.args, quote
                         $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
-                        LogDensityProblems.ValueGradient(
+                        ProbabilityModels.LogDensityProblems.ValueGradient(
                             isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
                             $(Symbol("##∂θparameter##mconst"))
                         )
@@ -706,11 +709,13 @@ function generate_generated_funcs_expressions(model_name, expr)
             # end
             processing = quote
                 ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
+                first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(Symbol("##stack_pointer##")))
                 expr_out = quote
                     # target = zero($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
+                    $(Symbol("##stack_pointer##")) = ProbabilityModels.STACK_POINTER
                     $first_pass
-                    LogDensityProblems.Value( isfinite($(name_dict[:target])) ? $(name_dict[:target]) : $T_sym(-Inf) )
+                    ProbabilityModels.LogDensityProblems.Value( isfinite($(name_dict[:target])) ? $(name_dict[:target]) : $T_sym(-Inf) )
                 end
             end
         end
@@ -741,7 +746,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
                 end
             end
-            # display(ProbabilityModels.MacroTools.striplines(final_quote))
+            display(ProbabilityModels.MacroTools.prettify(final_quote))
             final_quote
         end)
 
@@ -753,7 +758,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     # reverse_diff_pass(expr, gradient_targets)
 
     # dim_q = quote
-        # @generated function LogDensityProblems.dimension(::Type{$(model_name){$(variable_type_names...)}}) where {$(variable_type_names...)}
+        # @generated function ProbabilityModels.LogDensityProblems.dimension(::Type{$(model_name){$(variable_type_names...)}}) where {$(variable_type_names...)}
         #     dim = 0
         #     $([quote
         #         if $v <: Val
@@ -763,7 +768,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         #     ProbabilityModels.PaddedMatrices.Static{dim}()
         #     # dim
         # end
-        # @generated function LogDensityProblems.dimension(::$(model_name){$(variable_type_names...)}) where {$(variable_type_names...)}
+        # @generated function ProbabilityModels.LogDensityProblems.dimension(::$(model_name){$(variable_type_names...)}) where {$(variable_type_names...)}
         #     # dim = 0
         #     # $([quote
         #     #     if $v <: Val
@@ -772,7 +777,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         #     # end for v ∈ variable_type_names]...)
         #     # ProbabilityModels.PaddedMatrices.Static{dim}()
         #     # # dim
-        #     LogDensityProblems.dimension($(model_name){$(variable_type_names...)})
+        #     ProbabilityModels.LogDensityProblems.dimension($(model_name){$(variable_type_names...)})
         # end
 
     # end
@@ -785,9 +790,9 @@ end
 macro model(model_name, expr)
     # struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_q, dim_q, variables = generate_generated_funcs_expressions(model_name, expr)
     struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, θq_valuegradientbuffer, constrain_q, variables = generate_generated_funcs_expressions(model_name, expr)
-    # display(ProbabilityModels.MacroTools.striplines(struct_kwarg_quote))
-    # display(ProbabilityModels.MacroTools.striplines(θq_value))
-    # display(ProbabilityModels.MacroTools.striplines(θq_valuegradient))
+#     display(ProbabilityModels.MacroTools.striplines(struct_kwarg_quote))
+#     display(ProbabilityModels.MacroTools.striplines(θq_value))
+#     display(ProbabilityModels.MacroTools.striplines(θq_valuegradient))
     printstring = """
         Defined model: $model_name.
         Unknowns: $(variables[1])$([", " * string(variables[i]) for i ∈ 2:length(variables)]...).

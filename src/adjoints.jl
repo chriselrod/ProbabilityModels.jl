@@ -15,6 +15,12 @@ end
     # @assert !(isa(out, Array) || isa(out, LinearAlgebra.Adjoint{<:Any,<:Array}))
     out
 end
+@inline function RESERVED_INCREMENT_SEED_RESERVED(sp::StackPointer, a::One, b, c)
+    RESERVED_INCREMENT_SEED_RESERVED(sp, b, c)
+end
+@inline function RESERVED_DECREMENT_SEED_RESERVED(sp::StackPointer, a::One, b, c)
+    RESERVED_DECREMENT_SEED_RESERVED(sp, b, c)
+end
 
 @inline RESERVED_MULTIPLY_SEED_RESERVED(a::One, b) = b
 @inline RESERVED_NMULTIPLY_SEED_RESERVED(a::One, b) = RESERVED_NMULTIPLY_SEED_RESERVED(b)
@@ -28,6 +34,12 @@ end
     out = RESERVED_DECREMENT_SEED_RESERVED(a, c)
     # @assert !(isa(out, Array) || isa(out, LinearAlgebra.Adjoint{<:Any,<:Array}))
     out
+end
+@inline function RESERVED_INCREMENT_SEED_RESERVED(sp::StackPointer, a, b::One, c)
+    RESERVED_INCREMENT_SEED_RESERVED(sp, a, c)
+end
+@inline function RESERVED_DECREMENT_SEED_RESERVED(sp::StackPointer, a, b::One, c)
+    RESERVED_DECREMENT_SEED_RESERVED(sp, a, c)
 end
 
 
@@ -66,6 +78,17 @@ function Base.:*(A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Red
     end
     ConstantFixedSizePaddedVector(reduction)'
 end
+function Base.:*(sp::StackPointer, A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Reducer{:row}) where {M,N,T,P}
+    sp, reduction = PtrVector{N,T}(sp)
+    @inbounds for n ∈ 0:(N-1)
+        sₙ = zero(T)
+        @simd ivdep for m ∈ 1:M
+            sₙ += A[m + P*n]
+        end
+        reduction[n+1] = sₙ
+    end
+    sp, reduction'
+end
 @generated function Base.:*(a::LinearAlgebra.Adjoint{T,<:AbstractVector{T}}, ::Reducer{S}) where {T,S}
     S == true && return quote
         $(Expr(:meta,:inline))
@@ -97,6 +120,37 @@ end
         end
     end
 end
+@generated function Base.:*(sp::StackPointer, a::LinearAlgebra.Adjoint{T,<:AbstractVector{T}}, ::Reducer{S}) where {T,S}
+    S == true && return quote
+        $(Expr(:meta,:inline))
+        sum(a.parent)
+    end
+    # @assert sum(S) == M
+    N = length(S)
+    q = quote
+        sp, out = PtrVector{$N,$T}(sp)
+    end
+    outtup = Expr(:tuple,)
+    ind = 0
+    ind2 = 0
+    for (j,s) ∈ enumerate(S)
+        ind += 1
+        accumulate_sym = gensym()
+        push!(q.args, :($accumulate_sym = a[$ind]))
+        for i ∈ 2:s
+            ind += 1
+            push!(q.args, :($accumulate_sym += a[$ind]))
+        end
+        ind2 += 1
+        push!(q.args, :(out[$ind2] = $accumulate_sym))
+    end
+    quote
+        @fastmath @inbounds begin
+            $q
+        end
+        sp, out'
+    end
+end
 @generated function Base.:*(A::AbstractMatrix{T}, ::Reducer{S}) where {T,S}
     S == true && return :(sum(A))
     # y = Vector{T}(undef, 0)
@@ -104,6 +158,15 @@ end
     quote
         # resize!(y, size(A,1))
         sum!($y, A)' * Reducer{$S}()
+    end
+end
+@generated function Base.:*(sp::StackPointer, A::AbstractMatrix{T}, ::Reducer{S}) where {T,S}
+    S == true && return :(sum(A))
+    # y = Vector{T}(undef, 0)
+    quote
+        (sp, y) = PtrVector{$(sum(S)),$T}(sp)
+        # resize!(y, size(A,1))
+        *(sp, sum!(y, A)', Reducer{$S}())
     end
 end
 @generated function Base.:*(
@@ -144,6 +207,50 @@ end
         sum!($y, A)' * rw
     end
 end
+@generated function Base.:*(
+    sp::StackPointer,
+    a::LinearAlgebra.Adjoint{T, <: AbstractVector{T}},
+    b::ReducerWrapper{S, <: AbstractVector{T}}
+) where {T,S}
+    # @assert sum(S) == M
+    N = length(S)
+    q = quote
+        (sp, out) = PtrVector{$N,$T}(sp)
+    end
+    ind = 0
+    ind2 = 0
+    for (j,s) ∈ enumerate(S)
+        ind += 1
+        accumulate_sym = gensym()
+        push!(q.args, :($accumulate_sym = a[$ind] * b[$ind]))
+        for i ∈ 2:s
+            ind += 1
+            push!(q.args, :($accumulate_sym += a[$ind] * b[$ind]))
+        end
+        ind2 += 1
+        push!(q.args, :(out[$ind2] = accumulate_sym))
+    end
+#    P = PaddedMatrices.calc_padding(N, T)
+#    for p ∈ N+1:P
+#        push!(outtup.args, zero(T))
+#    end
+    quote
+        @fastmath @inbounds begin
+            $q
+ #           ConstantFixedSizePaddedVector{$N,$T,$P}($outtup)'
+        end
+        sp, out'
+    end
+end
+@generated function Base.:*(sp::StackPointer, A::AbstractMatrix{T}, rw::ReducerWrapper{S}) where {T,S}
+    # y = Vector{T}(undef, 0)
+    quote
+        (sp, y) = PtrVector{$(sum(S)),$T}(sp)
+
+        # resize!(y, size(A,1))
+        *(sp, sum!($y, A)', rw)
+    end
+end
 
 @inline ∂mul(x, y, ::Val{(true,true)}) = y, x
 @inline ∂mul(x, y, ::Val{(true,false)}) = y
@@ -167,3 +274,5 @@ end
 
     StructuredMatrices.∂DiagLowerTri∂LowerTri(D)
 end
+
+

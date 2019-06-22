@@ -1,4 +1,5 @@
 
+#=
 struct StructuredMissingness{S,K,nT,P,PL,T,nTL}
     incr::MutableFixedSizePaddedVector{P,T,PL,PL}
     coef::MutableFixedSizePaddedVector{P,T,PL,PL}
@@ -6,6 +7,8 @@ struct StructuredMissingness{S,K,nT,P,PL,T,nTL}
     # missingness::BitVector
     times::ConstantFixedSizePaddedVector{nT,T,nTL,nTL}
 end
+
+
 
 function ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMissingness{S,K,nT}) where {S,T,K,nT}
     incr = sm.incr
@@ -71,9 +74,9 @@ function ∂ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMiss
     PaddedMatrices.muladd!(δ, coef, data, incr)
     δ, Reducer{S}(), ReducerWrapper{S}(∂κ)
 end
+=#
 
-
-function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Nparamargs,Bool}, partial::Bool) where {Nparamargs}
+function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Nparamargs,Bool}, partial::Bool, sp = false) where {Nparamargs}
     if Nparamargs == 2
         (track_β, track_κ) = track
         track_θ = false
@@ -93,8 +96,9 @@ function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Npara
     Wm1 = W - 1
     P = (M + Wm1) & ~Wm1
     if !partial || (!track_β && !track_κ)
+        return_expr = track_θ ? :(μ, ProbabilityModels.Reducer{:row}()) : :μ
+        return_expr = sp ? :(sp, $return_expr) : return_expr
         return quote
-            μ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
             @inbounds for n ∈ 0:$(N-1)
                 βₙ = β[n+1]
                 κₙ = κ[n+1]
@@ -105,16 +109,14 @@ function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Npara
             end
             # println("ITP μ")
             # println(μ)
-            $(track_θ ? :(ConstantFixedSizePaddedMatrix(μ), ProbabilityModels.Reducer{:row}()) : :(ConstantFixedSizePaddedMatrix(μ)))
+            $return_expr
         end
     end
     if track_β && track_κ
-        return_expr = :(ConstantFixedSizePaddedMatrix(μ), StructuredMatrices.BlockDiagonalColumnView(ConstantFixedSizePaddedMatrix(∂β)), StructuredMatrices.BlockDiagonalColumnView(ConstantFixedSizePaddedMatrix(∂κ)))
+        return_expr = :(μ, StructuredMatrices.BlockDiagonalColumnView(∂β), StructuredMatrices.BlockDiagonalColumnView(∂κ))
         track_θ && push!(return_expr.args, ProbabilityModels.Reducer{:row}())
+        return_expr = sp ? :(sp, $return_expr) : return_expr
         return quote
-            μ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-            ∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-            ∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
             @inbounds for n ∈ 0:$(N-1)
                 βₙ = β[n+1]
                 κₙ = κ[n+1]
@@ -132,12 +134,11 @@ function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Npara
             $return_expr
         end
     elseif track_β
-        return_expr = :(ConstantFixedSizePaddedMatrix(μ), StructuredMatrices.BlockDiagonalColumnView(ConstantFixedSizePaddedMatrix(∂β)))
+        return_expr = :(μ, StructuredMatrices.BlockDiagonalColumnView(∂β))
         track_θ && push!(return_expr.args, ProbabilityModels.Reducer{:row}())
+        return_expr = sp ? :(sp, $return_expr) : return_expr
 
         return quote
-            μ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-            ∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
             @inbounds for n ∈ 0:$(N-1)
                 βₙ = β[n+1]
                 κₙ = κ[n+1]
@@ -153,12 +154,11 @@ function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Npara
             $return_expr
         end
     else # track_κ
-        return_expr = :(ConstantFixedSizePaddedMatrix(μ), StructuredMatrices.BlockDiagonalColumnView(ConstantFixedSizePaddedMatrix(∂κ)))
+        return_expr = :(μ, StructuredMatrices.BlockDiagonalColumnView(∂κ))
         track_θ && push!(return_expr.args, ProbabilityModels.Reducer{:row}())
+        return_expr = sp ? :(sp, $return_expr) : return_expr
 
         return quote
-            μ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-            ∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
             @inbounds for n ∈ 0:$(N-1)
                 βₙ = β[n+1]
                 κₙ = κ[n+1]
@@ -176,147 +176,6 @@ function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Npara
     end
 end
 
-# function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Nparamargs,Bool}, partial::Bool) where {Nparamargs}
-#     if Nparamargs == 2
-#         (track_β, track_κ) = track
-#         track_θ = false
-#         add_θ = false
-#     else
-#         @assert Nparamargs == 3
-#         (track_β, track_κ, track_θ) = track
-#         add_θ = true
-#     end
-#
-#     #TODO: the first time equals θ, and the last equals θ + β; can skip exponential calculations.
-#
-#     # M x N output
-#     # M total times
-#     # N total β and κs
-#     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
-#     Wm1 = W - 1
-#     P = (M + Wm1) & ~Wm1
-#     if !partial || (!track_β && !track_κ)
-#         return quote
-#             coefs = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             final_t = τ[$M]
-#             @vectorize $T for n ∈ 1:$N
-#                 coefs[n] = β[n] / (one($T) - exp(-κ[n] * final_t))
-#             end
-#             μ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             @inbounds for n ∈ 0:$(N-1)
-#                 coefₙ = coefs[n+1]
-#                 κₙ = κ[n+1]
-#                 $(add_θ ? :(θₙ = θ[n+1]) : nothing)
-#                 @vectorize $T for m ∈ 1:$M
-#                     μ[m + $P*n] = $(add_θ ? :(coefₙ * (one($T) - exp(-κₙ * τ[m])) + θₙ ) : :(coefₙ * (one($T) - exp(-κₙ * τ[m])))  )
-#                 end
-#             end
-#             $(track_θ ? :(ConstantFixedSizePaddedMatrix(μ), ProbabilityModels.Reducer{:row}()) : :(ConstantFixedSizePaddedMatrix(μ)))
-#         end
-#     end
-#     if track_β && track_κ
-#         return_expr = :(ConstantFixedSizePaddedMatrix(μ), StructuredMatrices.BlockDiagonalColumnView(ConstantFixedSizePaddedMatrix(∂β)), StructuredMatrices.BlockDiagonalColumnView(ConstantFixedSizePaddedMatrix(∂κ)))
-#         track_θ && push!(return_expr.args, ProbabilityModels.Reducer{:row}())
-#         return quote
-#             ℯκd = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             denoms = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             # coefs = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             final_t = τ[$M]
-#             @vectorize $T for n ∈ 1:$N
-#                 ℯκdₙ = exp( - κ[n] * final_t)
-#                 ℯκd[n] = ℯκdₙ
-#                 denoms[n] = one($T) / (one($T) - ℯκdₙ)
-#             end
-#             μ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             ∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             ∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             @inbounds for n ∈ 0:$(N-1)
-#                 denomₙ = denoms[n+1]
-#                 βₙ = β[n+1]
-#                 κₙ = κ[n+1]
-#                 ℯκdₙ = ℯκd[n+1]
-#                 $(add_θ ? :(θₙ = θ[n+1]) : nothing)
-#                 @vectorize $T for m ∈ 1:$M
-#                     tₘ = τ[m]
-#                     ℯκt = exp(-κₙ * tₘ)
-#                     Omℯκt = one($T) - ℯκt
-#                     ∂βₘ = denomₙ * Omℯκt
-#                     ∂β[m + $P*n] = ∂βₘ
-#                     μ[m + $P*n] = $(add_θ ? :(βₙ * ∂βₘ  + θₙ) : :(βₙ * ∂βₘ) )
-#                     ∂κ[m + $P*n] = denomₙ * βₙ * (ℯκt * tₘ - denomₙ * final_t * Omℯκt * ℯκdₙ)
-#                 end
-#             end
-#             $return_expr
-#         end
-#     elseif track_β
-#         return_expr = :(ConstantFixedSizePaddedMatrix(μ), StructuredMatrices.BlockDiagonalColumnView(ConstantFixedSizePaddedMatrix(∂β)))
-#         track_θ && push!(return_expr.args, ProbabilityModels.Reducer{:row}())
-#
-#         return quote
-#             denoms = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             # coefs = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             final_t = τ[$M]
-#             @vectorize $T for n ∈ 1:$N
-#                 denoms[n] = one($T) / (one($T) - exp( - κ[n] * final_t))
-#             end
-#             μ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             ∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             @inbounds for n ∈ 0:$(N-1)
-#                 denomₙ = denoms[n+1]
-#                 βₙ = β[n+1]
-#                 κₙ = κ[n+1]
-#                 $(add_θ ? :(θₙ = θ[n+1]) : nothing)
-#                 @vectorize $T for m ∈ 1:$M
-#                     tₘ = τ[m]
-#                     ℯκt = exp(-κₙ * tₘ)
-#                     Omℯκt = one($T) - ℯκt
-#                     μ[m + $P*n] = $(add_θ ? :(βₙ * ∂βₘ + θₙ) : :(βₙ * ∂βₘ))
-#                     ∂βₘ = denomₙ * Omℯκt
-#                     ∂β[m + $P*n] = ∂βₘ
-#                 end
-#             end
-#             $return_expr
-#         end
-#     else # track_κ
-#         return_expr = :(ConstantFixedSizePaddedMatrix(μ), StructuredMatrices.BlockDiagonalColumnView(ConstantFixedSizePaddedMatrix(∂κ)))
-#         track_θ && push!(return_expr.args, ProbabilityModels.Reducer{:row}())
-#
-#         return quote
-#             ℯκd = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             denoms = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             coefs = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             # coefs = MutableFixedSizePaddedVector{$N,$T}(undef)
-#             final_t = τ[$M]
-#             @vectorize $T for n ∈ 1:$N
-#                 ℯκdₙ = exp( - κ[n] * final_t)
-#                 ℯκd[n] = ℯκdₙ
-#                 denom = one($T) / (one($T) - ℯκdₙ)
-#                 denoms[n] = denom
-#                 coefs[n] = denom * β[n]
-#             end
-#             μ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             ∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             ∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)
-#             @inbounds for n ∈ 0:$(N-1)
-#                 denomₙ = denoms[n+1]
-#                 coefₙ = coefs[n+1]
-#                 βₙ = β[n+1]
-#                 κₙ = κ[n+1]
-#                 ℯκdₙ = ℯκd[n+1]
-#                 $(add_θ ? :(θₙ = θ[n+1]) : nothing)
-#                 @vectorize $T for m ∈ 1:$M
-#                     tₘ = τ[m]
-#                     ℯκt = exp(-κₙ * tₘ)
-#                     Omℯκt = one($T) - ℯκt
-#                     μ[m + $P*n] = $(add_θ ? :(coefₙ * Omℯκt + θₙ) : :(coefₙ * Omℯκt) )
-#                     ∂κ[m + $P*n] = coefₙ * (ℯκt * tₘ - denomₙ * final_t * Omℯκt * ℯκdₙ)
-#                 end
-#             end
-#             $return_expr
-#         end
-#     end
-# end
-
 @generated function ITPExpectedValue(
             τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
             β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
@@ -327,7 +186,10 @@ end
     else
         M = R
     end
-    ITPExpectedValue_quote(M, N, T, (false, false), false)
+    quote
+        μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
+        $(ITPExpectedValue_quote(M, N, T, (false, false), false))
+    end
 end
 @generated function ∂ITPExpectedValue(
             τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
@@ -340,7 +202,18 @@ end
     else
         M = R
     end
-    ITPExpectedValue_quote(M, N, T, track, true)
+    (track_β, track_κ) = track
+    q = quote
+        μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
+    end
+    if track_β
+        push!(q.args, :(∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)))
+    end
+    if track_κ
+        push!(q.args, :(∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)))
+    end
+    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true))
+    q
 end
 @generated function ITPExpectedValue(
             τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
@@ -354,7 +227,10 @@ end
     else
         M = R
     end
-    ITPExpectedValue_quote(M, N, T, (false, false, false), true)
+    quote
+        μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
+        $(ITPExpectedValue_quote(M, N, T, (false, false, false), false))
+    end
 end
 @generated function ∂ITPExpectedValue(
             τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
@@ -369,8 +245,108 @@ end
     else
         M = R
     end
-    ITPExpectedValue_quote(M, N, T, track, true)
+    (track_β, track_κ, track_θ) = track
+    q = quote
+        μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
+    end
+    if track_β
+        push!(q.args, :(∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)))
+    end
+    if track_κ
+        push!(q.args, :(∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)))
+    end
+    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true))
+    q
 end
+@generated function ITPExpectedValue(
+    sp::StackPointer,
+    τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+    β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T}
+) where {R,N,T}
+    if isa(R, AbstractRange)
+        M = length(R)
+    else
+        M = R
+    end
+    quote
+        (sp, μ) = PtrMatrix{$M,$N,$T,$M}(sp)
+        $(ITPExpectedValue_quote(M, N, T, (false, false), false, true))
+    end
+end
+@generated function ∂ITPExpectedValue(
+    sp::StackPointer,
+    τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+    β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    ::Val{track}
+) where {R,N,T,track}
+    if isa(R, AbstractRange)
+        M = length(R)
+    else
+        M = R
+    end
+    (track_β, track_κ) = track
+    q = quote
+        (sp, μ) = PtrMatrix{$M,$N,$T,$M}(sp)
+    end
+    if track_β
+        push!(q.args, :((sp, ∂β) = PtrMatrix{$M,$N,$T}(sp)))
+    end
+    if track_κ
+        push!(q.args, :((sp, ∂κ) = PtrMatrix{$M,$N,$T}(sp)))
+    end
+    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true, true))
+    q
+end
+@generated function ITPExpectedValue(
+    sp::StackPointer,
+    τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+    β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    θ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T}
+        # ) where {R,T,N}
+) where {R,N,T}
+    if isa(R, AbstractRange)
+        M = length(R)
+    else
+        M = R
+    end
+    quote
+        (sp, μ) = PtrMatrix{$M,$N,$T,$M}(sp)
+        $(ITPExpectedValue_quote(M, N, T, (false, false, false), false, true))
+    end
+end
+@generated function ∂ITPExpectedValue(
+    sp::StackPointer,
+    τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+    β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    θ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    ::Val{track}
+) where {R,T,N,track}
+    # ) where {R,N,T,track}
+    if isa(R, AbstractRange)
+        M = length(R)
+    else
+        M = R
+    end
+    (track_β, track_κ, track_θ) = track
+    q = quote
+        (sp, μ) = PtrMatrix{$M,$N,$T,$M}(sp)
+    end
+    if track_β
+        push!(q.args, :((sp,∂β) = PtrMatrix{$M,$N,$T}(undef)))
+    end
+    if track_κ
+        push!(q.args, :((sp,∂κ) = PtrMatrix{$M,$N,$T}(undef)))
+    end
+    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true, true))
+    q
+end
+
+@support_stack_pointer ITPExpectedValue
+@support_stack_pointer ∂ITPExpectedValue
 
 struct Domains{S} end
 Base.@pure Domains(S::NTuple{N,Int}) where {N} = Domains{S}()
@@ -592,4 +568,13 @@ end
     HierarchicalCentering_quote(M, P, T, false, true, S, track)
 end
 
+#@support_stack_pointer HierarchicalCentering
+#@support_stack_pointer ∂HierarchicalCentering
 
+struct ReshapeAdjoint{S} end
+function ∂vec(a::AbstractMutableFixedSizePaddedVector{S}) where {S}
+    vec(a), ReshapeAdjoint{S}()
+end
+function Base.:*(A::AbstractMutableFixedSizePaddedArray, ::ReshapeAdjoint{S}) where S
+    reshape(A, Val{S}())
+end
