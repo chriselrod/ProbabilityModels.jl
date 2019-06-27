@@ -1,9 +1,5 @@
-struct One end
-# This should be the only method I have to define.
-@inline Base.:*(a, ::One) = a
-# But I'll define this one too. Would it be better not to, so that we get errors
-# if the seed is for some reason multiplied on the right?
-@inline Base.:*(::One, a) = a
+using DistributionParameters: One
+
 
 @inline function RESERVED_INCREMENT_SEED_RESERVED(a::One, b, c)
     out = RESERVED_INCREMENT_SEED_RESERVED(b, c)
@@ -23,7 +19,7 @@ end
 end
 
 @inline RESERVED_MULTIPLY_SEED_RESERVED(a::One, b) = b
-@inline RESERVED_NMULTIPLY_SEED_RESERVED(a::One, b) = RESERVED_NMULTIPLY_SEED_RESERVED(b)
+@inline RESERVED_NMULTIPLY_SEED_RESERVED(a::One, b) = -b #RESERVED_NMULTIPLY_SEED_RESERVED(b)
 
 @inline function RESERVED_INCREMENT_SEED_RESERVED(a, b::One, c)
     out = RESERVED_INCREMENT_SEED_RESERVED(a, c)
@@ -43,8 +39,9 @@ end
 end
 
 
+@inline RESERVED_MULTIPLY_SEED_RESERVED(a::StackPointer, b::One) = (a, b)
 @inline RESERVED_MULTIPLY_SEED_RESERVED(a, b::One) = a
-@inline RESERVED_NMULTIPLY_SEED_RESERVED(a, b::One) = RESERVED_NMULTIPLY_SEED_RESERVED(a)
+@inline RESERVED_NMULTIPLY_SEED_RESERVED(a, b::One) = -a #RESERVED_NMULTIPLY_SEED_RESERVED(a)
 
 @inline RESERVED_INCREMENT_SEED_RESERVED(a::One, b::One, c) = c
 @inline RESERVED_DECREMENT_SEED_RESERVED(a::One, b::One, c) = - c
@@ -123,7 +120,7 @@ end
 @generated function Base.:*(sp::StackPointer, a::LinearAlgebra.Adjoint{T,<:AbstractVector{T}}, ::Reducer{S}) where {T,S}
     S == true && return quote
         $(Expr(:meta,:inline))
-        sum(a.parent)
+        (sp, sum(a.parent))
     end
     # @assert sum(S) == M
     N = length(S)
@@ -252,6 +249,7 @@ end
     end
 end
 
+#@inline ∂mul(x, y, ::Val{(true,true)}) = ((@show typeof(x), typeof(y)); return y, x)
 @inline ∂mul(x, y, ::Val{(true,true)}) = y, x
 @inline ∂mul(x, y, ::Val{(true,false)}) = y
 @inline ∂mul(x, y, ::Val{(false,true)}) = x
@@ -259,7 +257,7 @@ end
 @inline function ∂mul(D::LinearAlgebra.Diagonal{T,<:AbstractFixedSizePaddedVector{M,T,P}},
                     L::StructuredMatrices.AbstractLowerTriangularMatrix{M,T,N}, ::Val{(true,true)}) where {M,N,P,T}
 
-
+    #println("∂mul")
     StructuredMatrices.∂DiagLowerTri∂Diag(L), StructuredMatrices.∂DiagLowerTri∂LowerTri(D)
 end
 @inline function ∂mul(D::LinearAlgebra.Diagonal{T,<:AbstractFixedSizePaddedVector{M,T,P}},

@@ -74,14 +74,12 @@ end
 
 function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
     postwalk(expr) do x
-        if @capture(x, for i_ ∈ iter_ body_ end)
-            throw("Loops not yet supported!")
-            # reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
-        elseif @capture(x, out_ = f_(A__))
+        if @capture(x, out_ = f_(A__))
             differentiate!(first_pass, second_pass, tracked_vars, out, f, A)
         elseif @capture(x, out_ = A_) && isa(A, Symbol)
             push!(first_pass.args, x)
             pushfirst!(second_pass.args, :( $(Symbol("###seed###", A)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $(Symbol("###seed###", A)) )) )
+            A ∈ tracked_vars && push!(tracked_vars, out)
         elseif @capture(x, if cond_; conditionaleval_; else; alternateeval_ end)
             reverse_diff_ifelse!(first_pass, second_pass, tracked_vars, cond, conditionaleval, alternateeval)
         # else
@@ -154,11 +152,19 @@ will be added.
 "second_pass" is an expression for the reverse pass.
 """
 function differentiate!(first_pass, second_pass, tracked_vars, out, f, A)
+#    @show f, typeof(f), A, (A .∈ Ref(tracked_vars))
+#    @show f, out, A, (A .∈ Ref(tracked_vars))
     arity = length(A)
     if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
-        ProbabilityDistributions.distribution_diff_rule!(:(ProbabilityModels.ProbabilityDistributions), first_pass, second_pass, tracked_vars, out, A, f)
+        ProbabilityDistributions.distribution_diff_rule!(:(ProbabilityDistributions), first_pass, second_pass, tracked_vars, out, A, f)
     elseif haskey(SPECIAL_DIFF_RULES, f)
         SPECIAL_DIFF_RULES[f](first_pass, second_pass, tracked_vars, out, A)
+#    elseif f isa GlobalRef # TODO: Come up with better system that can use modules.
+#        SPECIAL_DIFF_RULES[f.name](first_pass, second_pass, tracked_vars, out, A)
+    elseif @capture(f, M_.F_) # TODO: Come up with better system that can use modules.
+        F == :getproperty && return
+        SPECIAL_DIFF_RULES[F](first_pass, second_pass, tracked_vars, out, A)
+#        tuple_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     elseif f ∈ NOOPDIFFS
         noopdiff!(first_pass, second_pass, tracked_vars, out, f, A)
     elseif DiffRules.hasdiffrule(:Base, f, arity)
@@ -166,12 +172,14 @@ function differentiate!(first_pass, second_pass, tracked_vars, out, f, A)
     elseif DiffRules.hasdiffrule(:SpecialFunctions, f, arity)
         apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, DiffRules.diffrule(:SpecialFunctions, f, A...))
     else # ForwardDiff?
+        throw("Function $f with arguments $A is not yet supported.")
         # Or, for now, Zygote for univariate.
-        zygote_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
+#        zygote_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
         # throw("Fall back differention rules not yet implemented, and no method yet to handle $f($(A...))")
     end
 end
 
+#=
 @noinline outlinederror(x) = error(x)
 function zygote_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
     track = Symbol[]
@@ -216,3 +224,4 @@ function zygote_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
     end
     nothing
 end
+=#

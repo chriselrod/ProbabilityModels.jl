@@ -1,4 +1,5 @@
 
+
 # includet("/home/chriselrod/Documents/progwork/julia/model_macro_passes.jl")
 
 # using MacroTools
@@ -32,20 +33,21 @@ function translate_sampling_statements(expr)
         if @capture(x, y_ ~ f_(θ__))
             if f ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
                 if @capture(x, y_ ~ f_(α_ + X_ * β_ , θ__))
-                    return :(target = target + $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...)))
+                    return :(target = vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
                 elseif @capture(x, y_ ~ f_(X_ * β_ + α_, θ__))
-                    return :(target = target + $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...)))
+                    return :(target = vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
                 elseif @capture(x, y_ ~ f_(α_ - X_ * β_, θ__))
-                    return :(target = target + $(Symbol(f,:_fnmadd))($y, $X, $β, $α, $(θ...)))
+                    return :(target = vadd(target, $(Symbol(f,:_fnmadd))($y, $X, $β, $α, $(θ...))))
                 elseif @capture(x, y_ ~ f_(X_ * β_ - α_, θ__))
-                    return :(target = target + $(Symbol(f,:_fmsub))($y, $X, $β, $α, $(θ...)))
+                    return :(target = vadd(target, $(Symbol(f,:_fmsub))($y, $X, $β, $α, $(θ...))))
                 elseif @capture(x, y_ ~ f_(- X_ * β_ - α_, θ__))
-                    return :(target = target + $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...)))
+                    return :(target = vadd(target, $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...))))
                 elseif @capture(x, y_ ~ f_( - α_ - X_ * β_, θ__))
-                    return :(target = target + $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...)))
+                    return :(target = vadd(target, $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...))))
                 end
             end
-            return :(target = target + $f($y, $(θ...)))
+            return :(target = vadd(target, $f($y, $(θ...))))
+#            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
         else
@@ -59,7 +61,7 @@ end
 # prewalk(x -> (@show x), q2)
 
 
-
+#=
 function flatten_subexpression!(flattened, args::AbstractVector)
     map(args) do arg
         flatten_subexpression!(flattened, arg)
@@ -67,6 +69,7 @@ function flatten_subexpression!(flattened, args::AbstractVector)
 end
 function flatten_subexpression!(flattened, arg::Expr)
     postwalk(arg) do x
+#        @show x
         if @capture(x, f_(args__))
             a = gensym()
             push!(flattened, :($a = $f($(args...))))
@@ -88,10 +91,14 @@ Converts an expression into a sequence of single assignment codes (SACs)
 To be replaced with Meta.lower(ProbabilityModels, expr)
 """
 function flatten_expression(expr)
+#    println(expr)
+#    println("\n\n\n")
     q_flattened = @q begin end
     flattened = q_flattened.args
     for ex ∈ expr.args
-        if @capture(ex, for i_ ∈ iter_ body_ end)
+        if ex isa Symbol
+            continue
+        elseif @capture(ex, for i_ ∈ iter_ body_ end)
             push!(flattened, quote
                 for $i ∈ $iter
                     $(flatten_expression(Expr(:block, body)))
@@ -137,9 +144,43 @@ function flatten_expression(expr)
             end)
         elseif @capture(ex, a_ /= b_)
             push!(flattened, :($a = $a / $b))
+        elseif ex isa Expr && ex.head = :tuple
+            
+#        else
+#            @show ex
         end
     end
+#    println(q_flattened)
     q_flattened
+end
+=#
+ssa_sym(i::Int) = Symbol("##SSAValue##$(i)##")
+function ssa_to_sym(expr)
+    postwalk(expr) do ex
+        if ex isa Core.SSAValue
+            return ssa_sym(ex.id)
+        elseif ex isa GlobalRef
+            return Expr(:., Symbol(ex.mod), QuoteNode(ex.name))
+        else
+            return ex
+        end
+    end
+end
+function flatten_expression(expr)
+    lowered_array = Meta.lower(ProbabilityModels, expr).args
+    @assert length(lowered_array) == 1
+    lowered = first(lowered_array).code
+    q = quote end
+    for i ∈ 1:length(lowered) - 1 # skip return statement
+        ex = lowered[i]
+        if @capture(ex, a_ = b_)
+            push!(q.args, :($a = $(ssa_to_sym(b))))
+        else # assigns to ssa value
+            push!(q.args, :($(ssa_sym(i)) = $(ssa_to_sym(ex))))
+        end
+    end
+#    println(q)
+    q
 end
 
 """
@@ -271,6 +312,10 @@ function first_updates_to_assignemnts(expr, variables_input)
         if ex.head == :(=)
             check = false
             for j ∈ 2:length(ex.args)
+                if isa(ex.args[j], Expr) && ex.args[j].head == :block
+                    ex.args[j] = first_updates_to_assignemnts(ex.args[j], variables)
+                    continue
+                end
                 let new_assignment = new_assignment
                     postwalk(ex.args[j]) do x
                         isa(x, Symbol) && push!(variables, x)
@@ -287,11 +332,16 @@ function first_updates_to_assignemnts(expr, variables_input)
                     expr.args[i] = :($a = ProbabilityModels.PaddedMatrices.RESERVED_MULTIPLY_SEED_RESERVED($(b...)))
                 elseif @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED(b__, a_) )
                     expr.args[i] = :($a = ProbabilityModels.PaddedMatrices.RESERVED_NMULTIPLY_SEED_RESERVED($(b...)))
-                elseif @capture(ex, a_ = a_ + b__ ) || @capture(ex, a_ = b__ + a_ )# || @capture(ex, a_ = b__ )
+                elseif @capture(ex, a_ = a_ + b__ ) || @capture(ex, a_ = b__ + a_ ) || @capture(ex, a_ = Base.FastMath.add_fast(a_, b__)) || @capture(ex, a_ = Base.FastMath.add_fast(b__, a_))# || @capture(ex, a_ = b__ )
                     expr.args[i] = :($a = $(b...))
                 elseif @capture(ex, a_ = a_ - b__ )
                     expr.args[i] = :($a = -1 * $(b...))
+                elseif @capture(ex, a_ = SIMDPirates.vifelse(b_, LoopVectorization.SIMDPirates.vadd(a_, c_), a_))
+                    expr.args[i] = :($a = SIMDPirates.vifelse($b, $c, 0.0))
+#                elseif @capture(ex, target = ProbabilityModels.DistributionParameters.add(a_, b_) )
+#                    expr.args[i] = :( a_ = a_ )
                 else
+                    println(expr)
                     throw("""
                         This was the first assignment for $lhs in:
                             $(ex)
@@ -365,10 +415,10 @@ function constant_drop_pass!(first_pass, expr, tracked_vars)
                     end
                 end
                 push!(first_pass.args, :($out = ProbabilityModels.ProbabilityDistributions.$f($(A...), Val{$track_tup}())))
-                # printstring = "distribution $f: "
-                # push!(first_pass.args, :(println($printstring, $out)))
-                # push!(first_pass.args, :(@show $(A...)))
-                # push!(first_pass.args, :(@show $out))
+#                printstring = "distribution $f (ret: $out): "
+#                push!(first_pass.args, :(println($printstring, $out)))
+#                push!(first_pass.args, :(@show $(A...)))
+#                push!(first_pass.args, :(@show $out))
             # elseif f ∈ keys(SPECIAL_DIFF_RULES)
 
             else
@@ -378,8 +428,20 @@ function constant_drop_pass!(first_pass, expr, tracked_vars)
                         break
                     end
                 end
-                push!(first_pass.args, x)
+                if f == :add
+                    push!(first_pass.args, :( $out = ProbabilityModels.SIMDPirates.vadd($(A...))))
+                else
+                    push!(first_pass.args, x)
+                end
             end
+        elseif @capture(x, out_ = A__)
+            for a ∈ A
+                if a ∈ tracked_vars
+                    push!(tracked_vars, out)
+                    break
+                end
+            end
+            push!(first_pass.args, x)            
         else
             push!(first_pass.args, x)
         end
@@ -403,7 +465,11 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
             return_partials = false
             model_parameters = Symbol[]
             first_pass = quote end
-            push!(first_pass.args, Expr(:(=), :target, Expr(:call, :zero, $(QuoteNode(T)))))
+#            push!(first_pass.args, Expr(:(=), :target, Expr(:call, :zero, $(QuoteNode(T)))))
+#            push!(first_pass.args, Expr(:(=), :target, :(zero(ProbabilityModels.DistributionParameters.Target{$(QuoteNode(T))}))))# Expr(:call, :zero, $(QuoteNode(T)))))
+            push!(first_pass.args, Expr(:(=), :target, Expr(:call, :(ProbabilityModels.DistributionParameters.initialize_target), $(QuoteNode(T)))))
+                                
+
             push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.VectorizationBase.vectorizable), $(QuoteNode(θ)))))
             second_pass = quote end
 
@@ -429,7 +495,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
             if $(variable_type_names[i]) <: Val
                 # println($(variable_type_names[i]), "isa Val.")
                 push!(model_parameters, $(QuoteNode(variables[i])))
-                ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false)
+                ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels)
                 push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
             # else
             #     push!(first_pass.args, $load_data)
@@ -612,11 +678,11 @@ function generate_generated_funcs_expressions(model_name, expr)
             push!(θq_body, quote
                 if $(variable_type_names[i]) <: Val
                     push!(model_parameters, $(QuoteNode(variables[i])))
-                    ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), $return_partials)
+                    ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), $return_partials, ProbabilityModels, Symbol("##stack_pointer##"))
                     # if !$return_partials
                     #     push!(first_pass.args, Expr(:call, :println, $(string(variables[i]))))
                     #     push!(first_pass.args, Expr(:call, :println, $(QuoteNode(variables[i]))))
-                    # end
+                  # end
                 else
                     push!(first_pass.args, $load_data)
                 end
@@ -650,10 +716,11 @@ function generate_generated_funcs_expressions(model_name, expr)
                 # TLθ = ProbabilityModels.PaddedMatrices.type_length($θ) # This refers to the type of the input
                 # TLθ = ProbabilityModels.PaddedMatrices.tonumber(ProbabilityModels.DynamicHMC.dimension($ℓ))
                 ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
-                first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(Symbol("##stack_pointer##")))
-                second_pass = PaddedMatrices.stack_pointer_pass(second_pass, $(Symbol("##stack_pointer##")))
+ #               first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(QuoteNode(Symbol("##stack_pointer##"))))
+ #               second_pass = PaddedMatrices.stack_pointer_pass(second_pass, $(QuoteNode(Symbol("##stack_pointer##"))))
                 expr_out = quote
-                    # target = zero($T_sym)
+                    target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
+#                    target = zero(ProbabilityModels.DistributionParameters.Target{$T_sym})
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                     $(Symbol("##stack_pointer##")) = ProbabilityModels.STACK_POINTER
                     $first_pass
@@ -680,19 +747,21 @@ function generate_generated_funcs_expressions(model_name, expr)
                     # )
                 end
                 # VectorizationBase.REGISTER_SIZE is in bytes, so this is asking if 4 registers can hold the parameter vector
+                
                 if 2TLθ > ProbabilityModels.VectorizationBase.REGISTER_SIZE
                     push!(expr_out.args, quote
-                        ProbabilityModels.LogDensityProblems.ValueGradient(
-                            isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##m"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
-                            $(Symbol("##∂θparameter##m"))
+                          $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
+#                          @show $(Symbol("##scalar_target##")) 
+                          ProbabilityModels.LogDensityProblems.ValueGradient(
+                              isfinite($(Symbol("##scalar_target##"))) ? (all(isfinite, $(Symbol("##∂θparameter##m"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf)) : $T_sym(-Inf),  $(Symbol("##∂θparameter##m"))
                         )
                     end)
                 else
                     push!(expr_out.args, quote
-                        $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
-                        ProbabilityModels.LogDensityProblems.ValueGradient(
-                            isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
-                            $(Symbol("##∂θparameter##mconst"))
+                          $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
+                          $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
+                          ProbabilityModels.LogDensityProblems.ValueGradient(
+                              isfinite($(Symbol("##scalar_target##"))) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf)) : $T_sym(-Inf), $(Symbol("##∂θparameter##mconst"))
                         )
                     end)
                 end
@@ -709,13 +778,15 @@ function generate_generated_funcs_expressions(model_name, expr)
             # end
             processing = quote
                 ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
-                first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(Symbol("##stack_pointer##")))
+#                first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(QuoteNode(Symbol("##stack_pointer##"))))
                 expr_out = quote
-                    # target = zero($T_sym)
+                    target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
+#                    target = zero(ProbabilityModels.DistributionParameters.Target{$T_sym})
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                     $(Symbol("##stack_pointer##")) = ProbabilityModels.STACK_POINTER
                     $first_pass
-                    ProbabilityModels.LogDensityProblems.Value( isfinite($(name_dict[:target])) ? $(name_dict[:target]) : $T_sym(-Inf) )
+                    $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
+                    ProbabilityModels.LogDensityProblems.Value( isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf) )
                 end
             end
         end
@@ -743,10 +814,14 @@ function generate_generated_funcs_expressions(model_name, expr)
             final_quote = quote
                 # @fastmath @inbounds begin
                     @inbounds begin
-                    $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
+                    $(PaddedMatrices.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##")))))
                 end
-            end
-            display(ProbabilityModels.MacroTools.prettify(final_quote))
+              end
+#              println(MacroTools.striplines(final_quote))
+##              println(final_quote)
+##              println(ProbabilityModels.MacroTools.prettify(final_quote))
+##              println(tracked_vars)
+##            display(ProbabilityModels.MacroTools.prettify(final_quote))
             final_quote
         end)
 

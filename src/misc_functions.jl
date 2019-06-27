@@ -76,7 +76,7 @@ function ∂ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMiss
 end
 =#
 
-function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Nparamargs,Bool}, partial::Bool, sp = false) where {Nparamargs}
+function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Nparamargs,Bool}, partial::Bool, sp = false, P = (M + Wm1) & ~Wm1) where {Nparamargs}
     if Nparamargs == 2
         (track_β, track_κ) = track
         track_θ = false
@@ -94,7 +94,7 @@ function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Npara
     # N total β and κs
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     Wm1 = W - 1
-    P = (M + Wm1) & ~Wm1
+    
     if !partial || (!track_β && !track_κ)
         return_expr = track_θ ? :(μ, ProbabilityModels.Reducer{:row}()) : :μ
         return_expr = sp ? :(sp, $return_expr) : return_expr
@@ -117,19 +117,26 @@ function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Npara
         track_θ && push!(return_expr.args, ProbabilityModels.Reducer{:row}())
         return_expr = sp ? :(sp, $return_expr) : return_expr
         return quote
+            vone = vbroadcast(Vec{$W,$T},one($T))
             @inbounds for n ∈ 0:$(N-1)
                 βₙ = β[n+1]
-                κₙ = κ[n+1]
+                nκₙ = -κ[n+1]
                 $(add_θ ? :(θₙ = θ[n+1]) : nothing)
-                @vectorize $T for m ∈ 1:$M
-                    tₘ = τ[m]
-                    ℯκt = exp(- κₙ * tₘ)
-                    βₙℯκt = βₙ * ℯκt
-                    Omℯκt = one($T) - ℯκt
-                    ∂β[m + $P*n] = Omℯκt
-                    μ[m + $P*n] = $(add_θ ? :(βₙ * Omℯκt + θₙ) : :(βₙ - βₙℯκt) )
-                    ∂κ[m + $P*n] = βₙℯκt * tₘ
-                end
+                $(macroexpand(ProbabilityModels, quote
+                              LoopVectorization.@vvectorize $T for m ∈ 1:$M
+                              tₘ = τ[m]
+                              ℯκt = exp( nκₙ * tₘ)
+                              βₙℯκt = βₙ * ℯκt
+#=                              @show typeof(vone)
+                              @show typeof(ℯκt)
+                              @show vone
+                              @show ℯκt=#
+                              Omℯκt = vone - ℯκt
+                              ∂β[m + $P*n] = Omℯκt
+                              μ[m + $P*n] = $(add_θ ? :(βₙ * Omℯκt + θₙ) : :(βₙ - βₙℯκt) )
+                              ∂κ[m + $P*n] = βₙℯκt * tₘ
+                              end
+                end))
             end
             $return_expr
         end
@@ -188,7 +195,7 @@ end
     end
     quote
         μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
-        $(ITPExpectedValue_quote(M, N, T, (false, false), false))
+        $(ITPExpectedValue_quote(M, N, T, (false, false), false, false, M))
     end
 end
 @generated function ∂ITPExpectedValue(
@@ -207,12 +214,12 @@ end
         μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
     end
     if track_β
-        push!(q.args, :(∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)))
+        push!(q.args, :(∂β = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)))
     end
     if track_κ
-        push!(q.args, :(∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)))
+        push!(q.args, :(∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T,$N}(undef)))
     end
-    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true))
+    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true,false,M))
     q
 end
 @generated function ITPExpectedValue(
@@ -229,7 +236,7 @@ end
     end
     quote
         μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
-        $(ITPExpectedValue_quote(M, N, T, (false, false, false), false))
+        $(ITPExpectedValue_quote(M, N, T, (false, false, false), false,false,M))
     end
 end
 @generated function ∂ITPExpectedValue(
@@ -250,12 +257,12 @@ end
         μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
     end
     if track_β
-        push!(q.args, :(∂β = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)))
+        push!(q.args, :(∂β = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)))
     end
     if track_κ
-        push!(q.args, :(∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T}(undef)))
+        push!(q.args, :(∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)))
     end
-    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true))
+    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true,false,M))
     q
 end
 @generated function ITPExpectedValue(
@@ -271,7 +278,7 @@ end
     end
     quote
         (sp, μ) = PtrMatrix{$M,$N,$T,$M}(sp)
-        $(ITPExpectedValue_quote(M, N, T, (false, false), false, true))
+        $(ITPExpectedValue_quote(M, N, T, (false, false), false, true, M))
     end
 end
 @generated function ∂ITPExpectedValue(
@@ -291,12 +298,12 @@ end
         (sp, μ) = PtrMatrix{$M,$N,$T,$M}(sp)
     end
     if track_β
-        push!(q.args, :((sp, ∂β) = PtrMatrix{$M,$N,$T}(sp)))
+        push!(q.args, :((sp, ∂β) = PtrMatrix{$M,$N,$T,$M}(sp)))
     end
     if track_κ
-        push!(q.args, :((sp, ∂κ) = PtrMatrix{$M,$N,$T}(sp)))
+        push!(q.args, :((sp, ∂κ) = PtrMatrix{$M,$N,$T,$M}(sp)))
     end
-    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true, true))
+    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true, true, M))
     q
 end
 @generated function ITPExpectedValue(
@@ -314,7 +321,7 @@ end
     end
     quote
         (sp, μ) = PtrMatrix{$M,$N,$T,$M}(sp)
-        $(ITPExpectedValue_quote(M, N, T, (false, false, false), false, true))
+        $(ITPExpectedValue_quote(M, N, T, (false, false, false), false, true, M))
     end
 end
 @generated function ∂ITPExpectedValue(
@@ -331,22 +338,23 @@ end
     else
         M = R
     end
+#    @show τ, β, κ, θ, track
     (track_β, track_κ, track_θ) = track
     q = quote
+#        @show reinterpret(Int,pointer(sp)) - reinterpret(Int,pointer(ProbabilityModels.STACK_POINTER))
         (sp, μ) = PtrMatrix{$M,$N,$T,$M}(sp)
     end
     if track_β
-        push!(q.args, :((sp,∂β) = PtrMatrix{$M,$N,$T}(undef)))
+        push!(q.args, :((sp,∂β) = PtrMatrix{$M,$N,$T,$M}(sp)))
     end
     if track_κ
-        push!(q.args, :((sp,∂κ) = PtrMatrix{$M,$N,$T}(undef)))
+        push!(q.args, :((sp,∂κ) = PtrMatrix{$M,$N,$T,$M}(sp)))
     end
-    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true, true))
+#    push!(q.args, :(@show reinterpret(Int,pointer(sp)) - reinterpret(Int,pointer(ProbabilityModels.STACK_POINTER))))
+    push!(q.args, ITPExpectedValue_quote(M, N, T, track, true, true, M))
     q
 end
 
-@support_stack_pointer ITPExpectedValue
-@support_stack_pointer ∂ITPExpectedValue
 
 struct Domains{S} end
 Base.@pure Domains(S::NTuple{N,Int}) where {N} = Domains{S}()
@@ -572,7 +580,7 @@ end
 #@support_stack_pointer ∂HierarchicalCentering
 
 struct ReshapeAdjoint{S} end
-function ∂vec(a::AbstractMutableFixedSizePaddedVector{S}) where {S}
+function ∂vec(a::AbstractMutableFixedSizePaddedArray{S}) where {S}
     vec(a), ReshapeAdjoint{S}()
 end
 function Base.:*(A::AbstractMutableFixedSizePaddedArray, ::ReshapeAdjoint{S}) where S
