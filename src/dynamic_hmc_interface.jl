@@ -904,10 +904,12 @@ function DynamicHMC.tune(
     report = sampler.report
 
     sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N, DynamicHMC.adapting_ϵ(sampler.ϵ, δ = δ)...)
-    Σ = DynamicHMC.sample_cov(sample)
+    Σ = sample_diagcov(sample, regularize)
+    κ = DynamicHMC.GaussianKE(Σ)
+#=    Σ = DynamicHMC.sample_cov(sample)
     δΣ = UniformScaling(median!(diag(Σ))) - Σ
     @. Σ += δΣ * regularize/N
-    κ = DynamicHMC.GaussianKE(Σ, inv(cholesky(Symmetric(Σ)).U))
+    κ = DynamicHMC.GaussianKE(Σ, inv(cholesky(Symmetric(Σ)).U))=#
     DynamicHMC.NUTS(rng, DynamicHMC.Hamiltonian(H.ℓ, κ), last_position(sample), DynamicHMC.get_final_ϵ(A), max_depth, report)
 end
 function DynamicHMC.tune(
