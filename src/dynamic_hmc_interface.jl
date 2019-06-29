@@ -803,7 +803,7 @@ end
         regmul = Tf(1 / (N+reg))
         regadd = Tf(1e-3 * N⁻¹ * reg * regmul)
         @vectorize $Tf for p ∈ 1:$P
-            Σ[l] = Σ[l] * regmul + regadd
+            Σ[p] = Σ[p] * regmul + regadd
         end
         Diagonal(Σ)        
     end         
