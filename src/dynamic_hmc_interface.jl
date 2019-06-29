@@ -784,7 +784,7 @@ end
         N⁻¹ = 1 / N
         x̄ = zeros($P)
         @inbounds for n ∈ 1:N
-            s = sample[n]
+            s = get_position(sample[n])
             @vectorize $Tf for p ∈ 1:$P
                 x̄[p] = x̄[p] + s[p]
             end
@@ -794,7 +794,7 @@ end
         end
         Σ = zeros(N)
         @inbounds for n ∈ 1:N
-            s = sample[n]
+            s = get_position(sample[n])
             @vectorize $Tf for p ∈ 1:$P
                 δ = s[p] - x̄[p]
                 Σ[p] = δ * δ + Σ[p]
