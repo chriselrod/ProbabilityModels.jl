@@ -19,6 +19,18 @@ function exp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     nothing
 end
 SPECIAL_DIFF_RULES[:exp] = exp_diff_rule!
+function vexp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    a = A[1]
+    push!(first_pass.args, :($out = ProbabilityModels.PaddedMatrices.vexp($a)))
+    a ∈ tracked_vars || return nothing
+    push!(tracked_vars, out)
+    # ∂ = gensym(:∂)
+    ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
+    push!(first_pass.args, :($∂ = Diagonal($out)))
+    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
+    nothing
+end
+SPECIAL_DIFF_RULES[:vexp] = vexp_diff_rule!
 function log_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a = A[1]
     push!(first_pass.args, :($out = ProbabilityModels.SLEEFPirates.log($a)))

@@ -17,6 +17,7 @@ end
 @inline Random.rand(pcg::ScalarVectorPCG, ::Type{T}) where {T <: VectorizationBase.AbstractSIMDVector} = rand(pcg.vector, T)
 @inline Random.randn(pcg::ScalarVectorPCG, ::Type{T}) where {T <: VectorizationBase.AbstractSIMDVector} = randn(pcg.vector, T)
 @inline Random.randexp(pcg::ScalarVectorPCG, ::Type{T}) where {T <: VectorizationBase.AbstractSIMDVector} = randexp(pcg.vector, T)
+@inline Random.rng_native_52(pcg::ScalarVectorPCG) = Random.rng_native_52(pcg.scalar)
 issmall(::PaddedMatrices.Static{S}) where {S} = 2S <= VectorizationBase.REGISTER_SIZE
 issmall(n::Number) = 2n <= VectorizationBase.REGISTER_SIZE
 @generated function Random.rand(pcg::ScalarVectorPCG, ::PaddedMatrices.Static{N}) where {N}
