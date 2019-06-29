@@ -792,7 +792,7 @@ end
         @vectorize $Tf for p ∈ 1:$P
             x̄[p] = x̄[p] * N⁻¹
         end
-        Σ = zeros(N)
+        Σ = zeros($P)
         @inbounds for n ∈ 1:N
             s = get_position(sample[n])
             @vectorize $Tf for p ∈ 1:$P
