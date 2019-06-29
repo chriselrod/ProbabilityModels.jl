@@ -778,6 +778,36 @@ end
     end
 end
 
+@generated function sample_diagcov(sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}, reg, ::Val{P}) where {Tf,Tv,P}
+    quote
+        N = length(sample)
+        N⁻¹ = 1 / N
+        x̄ = zeros($P)
+        @inbounds for n ∈ 1:N
+            s = sample[n]
+            @vectorize $Tf for p ∈ 1:$P
+                x̄[p] = x̄[p] + s[p]
+            end
+        end
+        @vectorize $Tf for p ∈ 1:$P
+            x̄[p] = x̄[p] * N⁻¹
+        end
+        Σ = zeros(N)
+        @inbounds for n ∈ 1:N
+            s = sample[n]
+            @vectorize $Tf for p ∈ 1:$P
+                δ = s[p] - x̄[p]
+                Σ[p] = δ * δ + Σ[p]
+            end
+        end        
+        regmul = Tf(1 / (N+reg))
+        regadd = Tf(1e-3 * N⁻¹ * reg * regmul)
+        @vectorize $Tf for p ∈ 1:$P
+            Σ[l] = Σ[l] * regmul + regadd
+        end
+        Diagonal(Σ)        
+    end         
+end
 
 @generated function sample_diagcov(sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}, reg) where {Tf,L,P,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
     sample_mat_stride, leftover_stride = divrem(sizeof(DynamicHMC.NUTS_Transition{Tv,Tf}), sizeof(Tf))
@@ -796,9 +826,9 @@ end
 
             # @show Σ
             # Σ = Statistics.var(reshape(reinterpret(Float64, get_position.(sample)), ($L,N)), dims = 2)
-            @inbounds for l ∈ 1:$L
-                x̄[l] = Σ[l]
-            end
+        #    @inbounds for l ∈ 1:$L
+        #        x̄[l] = Σ[l]
+        #    end
             # return Diagonal(x̄)
             # # @show x̄
             # m̃ = quickmedian!(x̄)
@@ -894,7 +924,7 @@ function DynamicHMC.tune(
 end
 function DynamicHMC.tune(
                     sampler::NUTS{Tv,Tf,TR,TH}, tuner::DynamicHMC.StepsizeCovTuner, δ::Tf
-                ) where {P,Tf,Tv <: Vector{Tf},TR,Tℓ<:AbstractProbabilityModel,TH<:DynamicHMC.Hamiltonian{Tℓ}}
+                ) where {P,Tf,Tv <: Vector{Tf},TR,Tℓ<:AbstractProbabilityModel{P},TH<:DynamicHMC.Hamiltonian{Tℓ}}
     # @show typeof(sampler)
     regularize = tuner.regularize
     N = tuner.N
@@ -904,7 +934,7 @@ function DynamicHMC.tune(
     report = sampler.report
 
     sample, A = DynamicHMC.mcmc_adapting_ϵ(sampler, N, DynamicHMC.adapting_ϵ(sampler.ϵ, δ = δ)...)
-    Σ = sample_diagcov(sample, regularize)
+    Σ = sample_diagcov(sample, regularize, Val{P}())
     κ = DynamicHMC.GaussianKE(Σ)
 #=    Σ = DynamicHMC.sample_cov(sample)
     δΣ = UniformScaling(median!(diag(Σ))) - Σ
@@ -914,7 +944,7 @@ function DynamicHMC.tune(
 end
 function DynamicHMC.tune(
                         sampler::NUTS{Tv,Tf,TR,TH}, tuner::DynamicHMC.StepsizeTuner, δ::Tf
-                    ) where {P,Tf,Tv,TR,Tℓ<:AbstractProbabilityModel,TH<:DynamicHMC.Hamiltonian{Tℓ}}
+                    ) where {Tf,Tv,TR,Tℓ<:AbstractProbabilityModel,TH<:DynamicHMC.Hamiltonian{Tℓ}}
     N = tuner.N
     rng = sampler.rng
     H = sampler.H
