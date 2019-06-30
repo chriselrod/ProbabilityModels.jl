@@ -459,17 +459,14 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
     Nparam = gensym(:number_parameters)
     logjac = gensym(:logjac)
     θq = quote
-        @generated function ProbabilityModels.DistributionParameters.constrain($ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}, $logjac::Bool = false) where {$Nparam, $T, $(variable_type_names...)}
+        @generated function ProbabilityModels.DistributionParameters.constrain($ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}, ::Val{$logjac} = Val{false}()) where {$Nparam, $T, $logjac, $(variable_type_names...)}
 
 
             return_partials = false
-            model_parameters = Symbol[]
+#            model_parameters = Symbol[]
             first_pass = quote end
-#            push!(first_pass.args, Expr(:(=), :target, Expr(:call, :zero, $(QuoteNode(T)))))
-#            push!(first_pass.args, Expr(:(=), :target, :(zero(ProbabilityModels.DistributionParameters.Target{$(QuoteNode(T))}))))# Expr(:call, :zero, $(QuoteNode(T)))))
-            push!(first_pass.args, Expr(:(=), :target, Expr(:call, :(ProbabilityModels.DistributionParameters.initialize_target), $(QuoteNode(T)))))
+#            push!(first_pass.args, Expr(:(=), :target, Expr(:call, :(ProbabilityModels.DistributionParameters.initialize_target), $(QuoteNode(T)))))
                                 
-
             push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.VectorizationBase.vectorizable), $(QuoteNode(θ)))))
             second_pass = quote end
 
@@ -478,7 +475,58 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
 
         end
     end
+    v = Symbol("##storage_vector##")
+    θq_vec = quote
+        @generated function ProbabilityModels.DistributionParameters.constrain!($v::AbstractVector{$T}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}) where {$Nparam, $T, $(variable_type_names...)}
+
+            return_partials = false
+#            model_parameters = Symbol[]
+            first_pass = quote end
+            push!(first_pass.args, Expr(:(=), Symbol("##stack_pointer##"), Expr(:call, :(PaddedMatrices.StackPointer), Expr(:call, :pointer, $(QuoteNode(Symbol("##storage_vector##")))))))
+#            push!(first_pass.args, :(origpointer = pointer($(Symbol("##stack_pointer##")), Float64)))
+ #           push!(first_pass.args, Expr(:(=), :target, Expr(:call, :(ProbabilityModels.DistributionParameters.initialize_target), $(QuoteNode(T)))))
+                                
+            push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.VectorizationBase.vectorizable), $(QuoteNode(θ)))))
+            second_pass = quote end
+
+        end
+    end
+                                                                
+    param_names = gensym(:param_names)
+    param_names_quote = quote            
+        function ProbabilityModels.DistributionParameters.parameter_names($ℓ::$(model_name){$Nparam, $(variable_type_names...)}) where {$Nparam, $(variable_type_names...)}
+
+            $param_names = String[]
+            $([quote
+               if $v <: Val
+               # @show $v
+                   append!($param_names, ProbabilityModels.DistributionParameters.parameter_names(ProbabilityModels.extract_typeval($v), $(QuoteNode(v)))::Vector{String})
+               end
+               end for v ∈ variable_type_names]...)
+            $param_names
+            
+                                
+        end
+    end
+
+    
+    Nconstrainedparam = Symbol("##number_of_parameters##")
+    constrained_length_quote = quote
+        @generated function ProbabilityModels.DistributionParameters.constrained_length($ℓ::$(model_name){$Nparam, $(variable_type_names...)}) where {$Nparam, $(variable_type_names...)}
+
+            $Nconstrainedparam = 0
+            $([quote
+               if $v <: Val
+               # @show $v
+               $Nconstrainedparam += ProbabilityModels.PaddedMatrices.type_length(ProbabilityModels.extract_typeval($v))
+               end
+               end for v ∈ variable_type_names]...)
+            $Nconstrainedparam
+        end
+    end
     θq_body = θq.args[end].args[end].args[end].args;
+    θq_vec_body = θq_vec.args[end].args[end].args[end].args;
+   # param_name_body = param_names_quote.args[end].args[end].args[end].args;
     # push!(θq_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
     # Now, we work on assembling the function.
 
@@ -494,24 +542,40 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
             # @show $(variable_type_names[i])
             if $(variable_type_names[i]) <: Val
                 # println($(variable_type_names[i]), "isa Val.")
-                push!(model_parameters, $(QuoteNode(variables[i])))
-                ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels)
+#                push!(model_parameters, $(QuoteNode(variables[i])))
+                ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, nothing, $logjac)
                 push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
-            # else
-            #     push!(first_pass.args, $load_data)
             end
         end)
+        push!(θq_vec_body, quote
+            # @show $(variable_type_names[i])
+            if $(variable_type_names[i]) <: Val
+                # println($(variable_type_names[i]), "isa Val.")
+#                push!(model_parameters, $(QuoteNode(variables[i])))
+                ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false)
+                if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: DistributionParameters.ScalarParameter
+              push!(first_pass.args, Expr(:call, :(ProbabilityModels.VectorizationBase.store!),
+                                          Expr(:call, :pointer, Symbol("##stack_pointer##"), $(QuoteNode(T))), $(QuoteNode(variables[i]))))
+                    push!(first_pass.args, Expr(:(+=), Symbol("##stack_pointer##"), Expr(:call, :sizeof, $(QuoteNode(T)) )))
+#                    push!(first_pass.args, :(VectorizationBase.store!(pointer(sp, $(QuoteNode(T))), $(QuoteNode(variables[i]))) ))
+#                    push!(first_pass.args, Expr(:(+=), Symbol("##stack_pointer##"), Expr(:call, :sizeof, $(QuoteNode(T)) )))
+              end
+#              push!(first_pass.args, :(@show reinterpret(Int, pointer($(Symbol("##stack_pointer##")),Float64) - origpointer)>>3 ))
+#                push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
+              
+            end
+       end)
     end
-    # push!(θq_body, Expr(:call, :push!, :(first_pass.args), Expr(:if, QuoteNode(logjac), QuoteNode(:(return_expr,target)), QuoteNode(:return_expr))))
-    # push!(θq_body, Expr(:call, :push!, :(first_pass.args), QuoteNode(:($logjac ? (return_expr,target) : return_expr)) ))
-    # push!(θq_body, Expr(:call, :push!, :(first_pass.args), QuoteNode(Expr(:if, QuoteNode(logjac), Expr(:tuple, QuoteNode(:transformed_params), :target), QuoteNode(:transformed_params))) ))
-    # push!(θq_body, :(display(ProbabilityModels.MacroTools.striplines(first_pass))))
     push!(θq_body, :(push!(first_pass.args, return_expr)))
-    # println("\n\nDisplayed\n\n")
-    # push!(θq_body, :(display(ProbabilityModels.MacroTools.striplines(first_pass))))
-    push!(θq_body, :(first_pass))
+    push!(θq_vec_body, Expr(:call, :push!, :(first_pass.args), QuoteNode(Symbol("##storage_vector##"))))
 
-    θq
+#    push!(θq_body, :(println(ProbabilityModels.MacroTools.striplines(first_pass))))
+#    push!(θq_vec_body, :(println(ProbabilityModels.MacroTools.striplines(first_pass))))
+    push!(θq_body, :(first_pass))
+    push!(θq_vec_body, :(first_pass))
+
+
+    θq, θq_vec, param_names_quote, constrained_length_quote
 end
 
 @inline function new_gradient(vgb::LogDensityProblems.ValueGradientBuffer, x::AbstractVector)
@@ -610,7 +674,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     # q_body = q.args[end].args[end].args[end].args;
     # push!(q_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
 
-    constrain_quote = load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T)
+    constrain_quote, cvq, pn, clq  = load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T)
 
     # we have to split these, because of dispatch ambiguity errors
     θq_value = quote
@@ -710,7 +774,7 @@ function generate_generated_funcs_expressions(model_name, expr)
             processing = quote
                 # println("About to rename assginemtns:\n")
                 # display(second_pass)
-                second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
+#                second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
                 # println("\nRenamed assginemtns:\n")
                 # display(second_pass)
                 # TLθ = ProbabilityModels.PaddedMatrices.type_length($θ) # This refers to the type of the input
@@ -805,8 +869,9 @@ function generate_generated_funcs_expressions(model_name, expr)
         # end)
         push!(θq_body, quote
             tracked_vars = Set(model_parameters)
-            first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
-            expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
+#            first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
+#              expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
+              name_dict = Dict(:target => :target)
             θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
             T_sym = $(QuoteNode(T))
             ℓ_sym = $(QuoteNode(ℓ))
@@ -859,12 +924,12 @@ function generate_generated_funcs_expressions(model_name, expr)
 
 
     # struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, dim_q, variables
-    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, θq_valuegradientbuffer, constrain_quote, variables
+    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, θq_valuegradientbuffer, constrain_quote, cvq, pn, clq, variables
 end
 
 macro model(model_name, expr)
     # struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_q, dim_q, variables = generate_generated_funcs_expressions(model_name, expr)
-    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, θq_valuegradientbuffer, constrain_q, variables = generate_generated_funcs_expressions(model_name, expr)
+    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, θq_valuegradientbuffer, constrain_q, cvq, pn, clq, variables = generate_generated_funcs_expressions(model_name, expr)
 #     display(ProbabilityModels.MacroTools.striplines(struct_kwarg_quote))
 #     display(ProbabilityModels.MacroTools.striplines(θq_value))
 #     display(ProbabilityModels.MacroTools.striplines(θq_valuegradient))
@@ -874,7 +939,7 @@ macro model(model_name, expr)
     """
     esc(quote
         # $struct_quote; $dim_q; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $constrain_q;
-        $struct_quote; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $θq_valuegradientbuffer; $constrain_q;
+        $struct_quote; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $θq_valuegradientbuffer; $constrain_q; $cvq; $pn; $clq;
         ProbabilityModels.Distributed.myid() == 1 && println($printstring)
     end)
 end

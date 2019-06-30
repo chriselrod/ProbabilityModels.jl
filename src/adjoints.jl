@@ -37,7 +37,7 @@ end
 @inline function RESERVED_DECREMENT_SEED_RESERVED(sp::StackPointer, a, b::One, c)
     RESERVED_DECREMENT_SEED_RESERVED(sp, a, c)
 end
-
+@inline RESERVED_INCREMENT_SEED_RESERVED(sp::StackPointer, a::One, b) = (sp, b)
 
 @inline RESERVED_MULTIPLY_SEED_RESERVED(a::StackPointer, b::One) = (a, b)
 @inline RESERVED_MULTIPLY_SEED_RESERVED(a, b::One) = a

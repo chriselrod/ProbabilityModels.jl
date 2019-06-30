@@ -1032,6 +1032,10 @@ function NUTS_init_tune_mcmc_default(rng, ℓ, N; δ = 0.8, tuners = default_tun
     DynamicHMC.mcmc(sampler_tuned, N), sampler_tuned
 end
 NUTS_init_tune_mcmc_default(ℓ, N; args...) = NUTS_init_tune_mcmc_default(GLOBAL_ScalarVectorPCGs[1], ℓ, N; args...)
+function NUTS_init_tune_mcmc_default_chain(ℓ, N; args...)
+    chain, tuned_sampler = NUTS_init_tune_mcmc_default(GLOBAL_ScalarVectorPCGs[1], ℓ, N; args...)
+    MCMCChains.Chains([chain], ℓ, args...), tuned_sampler
+end
 
 # function NUTS_init_tune_distributed(ℓ, N; args...)
 #     @distributed vcat for i ∈ 1:nprocs()
@@ -1076,6 +1080,11 @@ end
 function NUTS_init_tune_distributed(ℓ, N; nchains = nprocs()-1, args...)
     paired_res = pmap(i -> NUTS_init_tune_mcmc_default(ℓ, N; args...), 1:nchains)
     getindex.(paired_res, 1), getindex.(paired_res, 2)
+end
+
+function NUTS_init_tune_distributed_chains(ℓ, N; nchains = nprocs()-1, args...)
+    paired_res = pmap(i -> NUTS_init_tune_mcmc_default(ℓ, N; args...), 1:nchains)
+    MCMCChains.Chains(getindex.(paired_res, 1), ℓ, args...), getindex.(paired_res, 2)
 end
 
 function store_transition!(psample::Ptr{Tf}, trans::DynamicHMC.NUTS_Transition{Tv,Tf}) where {M,Tf,L,Tv <: PaddedMatrices.AbstractMutableFixedSizePaddedVector{M,Tf,L,L}}

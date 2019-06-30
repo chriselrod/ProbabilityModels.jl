@@ -6,7 +6,8 @@ using   MacroTools, DiffRules,
         DistributionParameters, ProbabilityDistributions,
         DynamicHMC, LogDensityProblems,
         Random, VectorizedRNG, RandomNumbers,
-        LinearAlgebra, Statistics, Distributed
+        LinearAlgebra, Statistics, Distributed,
+        MCMCChains
 
 import MacroTools: postwalk, prewalk, @capture, @q
 import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,
@@ -25,7 +26,10 @@ include("misc_functions.jl")
 include("special_diff_rules.jl")
 include("reverse_autodiff_passes.jl")
 include("model_macro_passes.jl")
+include("mcmc_chains.jl")
 include("dynamic_hmc_interface.jl")
+
+const STACK_POINTER_REF = Ref{StackPointer}()
 
 PaddedMatrices.@support_stack_pointer ITPExpectedValue
 PaddedMatrices.@support_stack_pointer ∂ITPExpectedValue
@@ -34,6 +38,7 @@ function __init__()
     # Allocates 1 GiB per thread for the stack by default.
     # Can be controlled via the environmental variable PROBABILITY_MODELS_STACK_SIZE
     @eval const STACK_POINTER = PaddedMatrices.StackPointer( Libc.malloc(Threads.nthreads() * nprocs() * get(ENV, "PROBABILITY_MODELS_STACK_SIZE", 1 << 30 ) ))
+    STACK_POINTER_REF[] = STACK_POINTER
     # @eval const GLOBAL_WORK_BUFFER = Vector{Vector{UInt8}}(Base.Threads.nthreads())
     # Threads.@threads for i ∈ eachindex(GLOBAL_WORK_BUFFER)
     #     GLOBAL_WORK_BUFFER[i] = Vector{UInt8}(0)
@@ -46,6 +51,7 @@ function realloc_stack(n::Integer)
     @warn """You must redefine all probability models; their stacks have been deallocated.
 Re-evaluating densities without first recompiling them will likely crash Julia!"""
     global STACK_POINTER = Libc.realloc(STACK_POINTER, n)
+    STACK_POINTER_REF = STACK_POINTER
 end
     
 
