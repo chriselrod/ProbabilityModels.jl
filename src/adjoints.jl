@@ -2,14 +2,10 @@ using DistributionParameters: One
 
 
 @inline function RESERVED_INCREMENT_SEED_RESERVED(a::One, b, c)
-    out = RESERVED_INCREMENT_SEED_RESERVED(b, c)
-    # @assert !(isa(out, Array) || isa(out, LinearAlgebra.Adjoint{<:Any,<:Array}))
-    out
+    RESERVED_INCREMENT_SEED_RESERVED(b, c)
 end
 @inline function RESERVED_DECREMENT_SEED_RESERVED(a::One, b, c)
-    out = RESERVED_DECREMENT_SEED_RESERVED(b, c)
-    # @assert !(isa(out, Array) || isa(out, LinearAlgebra.Adjoint{<:Any,<:Array}))
-    out
+    RESERVED_DECREMENT_SEED_RESERVED(b, c)
 end
 @inline function RESERVED_INCREMENT_SEED_RESERVED(sp::StackPointer, a::One, b, c)
     RESERVED_INCREMENT_SEED_RESERVED(sp, b, c)
@@ -64,27 +60,55 @@ Base.size(::AbstractReducer) = ()
 @inline Base.:*(::Reducer{:row}, A::Number) = A
 @inline Base.:*(::Reducer{:row}, A::LinearAlgebra.Adjoint{<:Any,<:AbstractFixedSizePaddedVector}) = A
 
-function Base.:*(A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Reducer{:row}) where {M,N,T,P}
-    reduction = MutableFixedSizePaddedVector{N,T}(undef)
-    @inbounds for n ∈ 0:(N-1)
-        sₙ = zero(T)
-        @simd ivdep for m ∈ 1:M
-            sₙ += A[m + P*n]
+@generated function Base.:*(A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Reducer{:row}) where {M,N,T,P}
+    quote
+        reduction = MutableFixedSizePaddedVector{$N,$T}(undef)
+        @inbounds for n ∈ 0:(N-1)
+            sₙ = zero(T)
+            @vvectorize $T for m ∈ 1:$M
+                sₙ += A[m + P*n]
+            end
+            reduction[n+1] = sₙ
         end
-        reduction[n+1] = sₙ
+        ConstantFixedSizePaddedVector(reduction)'
     end
-    ConstantFixedSizePaddedVector(reduction)'
 end
-function Base.:*(sp::StackPointer, A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P}, ::Reducer{:row}) where {M,N,T,P}
-    sp, reduction = PtrVector{N,T}(sp)
-    @inbounds for n ∈ 0:(N-1)
-        sₙ = zero(T)
-        @simd ivdep for m ∈ 1:M
-            sₙ += A[m + P*n]
+@generated function Base.:*(
+    sp::StackPointer,
+    A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,P},
+    ::Reducer{:row}
+) where {M,N,T,P}
+    quote
+        reduction = PtrVector{$N,$T,$N,$N}(pointer(sp,$T))
+        @inbounds for n ∈ 0:(N-1)
+            sₙ = zero($T)
+            @vvectorize $T for m ∈ 1:$M
+                sₙ += A[m + $P*n]
+            end
+            reduction[n+1] = sₙ
         end
-        reduction[n+1] = sₙ
+        sp + $(N*sizeof(T)), reduction'
     end
-    sp, reduction'
+end
+@generated function PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(
+    sp::StackPointer,
+    A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,PA},
+    ::Reducer{:row},
+    C::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractMutableFixedSizePaddedVector{N,T,PC,PC}}
+) where {M,N,T,PA,PC}
+    quote
+        #        reduction = PtrVector{N,T,P,P}(pointer(sp,T))
+        C′ = C'
+        @inbounds for n ∈ 0:(N-1)
+            sₙ = zero(T)
+            @vvectorize $T for m ∈ 1:$M
+                sₙ += A[m + $PA*n]
+            end
+#            reduction[n+1] = sₙ
+            C′[n+1] += sₙ
+        end
+        sp, C
+    end
 end
 @generated function Base.:*(a::LinearAlgebra.Adjoint{T,<:AbstractVector{T}}, ::Reducer{S}) where {T,S}
     S == true && return quote

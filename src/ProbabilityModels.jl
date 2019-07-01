@@ -9,6 +9,7 @@ using   MacroTools, DiffRules,
         LinearAlgebra, Statistics, Distributed,
         MCMCChains
 
+using LoopVectorization: @vvectorize
 import MacroTools: postwalk, prewalk, @capture, @q
 import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,
     RESERVED_MULTIPLY_SEED_RESERVED, RESERVED_NMULTIPLY_SEED_RESERVED,
@@ -33,6 +34,8 @@ const STACK_POINTER_REF = Ref{StackPointer}()
 
 PaddedMatrices.@support_stack_pointer ITPExpectedValue
 PaddedMatrices.@support_stack_pointer ∂ITPExpectedValue
+PaddedMatrices.@support_stack_pointer HierarchicalCentering
+PaddedMatrices.@support_stack_pointer ∂HierarchicalCentering
 function __init__()
     @eval const GLOBAL_ScalarVectorPCGs = threadrandinit()
     # Allocates 1 GiB per thread for the stack by default.
@@ -43,7 +46,7 @@ function __init__()
     # Threads.@threads for i ∈ eachindex(GLOBAL_WORK_BUFFER)
     #     GLOBAL_WORK_BUFFER[i] = Vector{UInt8}(0)
     # end
-    for m ∈ (:ITPExpectedValue, :∂ITPExpectedValue)
+    for m ∈ (:ITPExpectedValue, :∂ITPExpectedValue, :HierarchicalCentering, :∂HierarchicalCentering)
         push!(PaddedMatrices.STACK_POINTER_SUPPORTED_METHODS, m)
     end
 end

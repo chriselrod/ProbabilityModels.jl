@@ -369,22 +369,40 @@ Base.eltype(::Domains{S}) where {S} = eltype(S)
 end
 Base.Array(::Domains{S}) where {S} = [S...]
 
-function HierarchicalCentering_quote(M::Int, T::DataType, μisvec::Bool, σisvec::Bool, (track_y, track_μ, track_σ), partial)
+function HierarchicalCentering_quote(M::Int, T::DataType, μisvec::Bool, σisvec::Bool, (track_y, track_μ, track_σ), partial, sp::Bool)
     μsym = μisvec ? :(μ[m]) : :μ
     σsym = σisvec ? :(σ[m]) : :σ
     if !partial
-        return quote
-            xout = MutableFixedSizePaddedVector{$M,$T}(undef)
-            @vectorize $T for m ∈ 1:$M
-                xout[m] = $μsym + $σsym * y[m]
+        if sp
+            return quote
+                xout = PtrVector{$M,$T,$M,$M}(pointer(sp,$T))
+                @vvectorize $T for m ∈ 1:$M
+                    xout[m] = $μsym + $σsym * y[m]
+                end
+                sp + $(sizeof(T)*M), xout
             end
-            ConstantFixedSizePaddedVector(xout)
+        else
+            return quote
+                xout = MutableFixedSizePaddedVector{$M,$T}(undef)
+                @vvectorize $T for m ∈ 1:$M
+                    xout[m] = $μsym + $σsym * y[m]
+                end
+                ConstantFixedSizePaddedVector(xout)
+            end
         end
     end
     # partial is true
-    q = quote xout = MutableFixedSizePaddedVector{$M,$T}(undef) end
+    if sp
+        q = quote
+            xout = PtrVector{$M,$T,$M,$M}(pointer(sp,$T))
+            sp += $(sizeof(T)*M)
+        end
+        return_expr = Expr(:tuple, :xout )
+    else
+        q = quote xout = MutableFixedSizePaddedVector{$M,$T}(undef) end
+        return_expr = Expr(:tuple, :(ConstantFixedSizePaddedVector(xout)) )
+    end
     loop_body = quote xout[m] = $μsym + $σsym * y[m] end
-    return_expr = Expr(:tuple, :(ConstantFixedSizePaddedVector(xout)) )
     if track_y
         if σisvec
             push!(return_expr.args, :(Diagonal(σ)) )
@@ -410,11 +428,11 @@ function HierarchicalCentering_quote(M::Int, T::DataType, μisvec::Bool, σisvec
         end
     end
     push!(q.args, quote
-        @vectorize $T for m ∈ 1:$M
-            $loop_body
-        end
-        $(ProbabilityDistributions.return_expression(return_expr))
-    end)
+          @vectorize $T for m ∈ 1:$M
+              $loop_body
+          end
+          $(ProbabilityDistributions.return_expression(return_expr, sp))
+      end)
     q
 end
 """
@@ -433,45 +451,70 @@ if σ is a scalar, will dot product on multiplication
 if σ is a vector, will do length(σ) mini dot products.
 """
 function HierarchicalCentering_quote(
-                M::Int, P::Int, T::DataType, μisvec::Bool, σisvec::Bool, S::NTuple{N,Int}, (track_y, track_μ, track_σ)
+                M::Int, P::Int, T::DataType, μisvec::Bool, σisvec::Bool, S::NTuple{N,Int}, (track_y, track_μ, track_σ), sp::Bool
             ) where {N}
     @assert sum(S) == M
     @assert μisvec | σisvec
     q = quote end
-    outtup = Expr(:tuple,)
+    if sp
+        push!(q.args, :(xout = PtrVector{$M,$T,$M,$M}(pointer(sp,$T))))
+        push!(q.args, :(sp += $(sizeof(T)*M)))
+        if track_y && σisvec
+            push!(q.args, :(∂y = PtrVector{$M,$T,$M,$M}(pointer(sp,$T))))
+            push!(q.args, :(sp += $(sizeof(T)*M)))
+        end
+    else
+        outtup = Expr(:tuple,)
+        if track_y && σisvec
+            ∂yexpr = Expr(:tuple,)
+        end
+    end
 
     ind = 0
-    if track_y && σisvec
-        ∂yexpr = Expr(:tuple,)
-    end
     for (j,s) ∈ enumerate(S)
         for i ∈ 1:s
             ind += 1
             sym = gensym()
-            if μisvec && σisvec
-                push!(q.args, :($sym = μ[$j] + σ[$j] * y[$ind]))
-                track_y && push!(∂yexpr.args, :(σ[$j]))
-            elseif μisvec
-                push!(q.args, :($sym = μ[$j] + σ * y[$ind]))
-
-            else #if σisvec
-                push!(q.args, :($sym = μ + σ[$j] * y[$ind]))
-                track_y && push!(∂yexpr.args, :(σ[$j]))
+            if sp
+                if μisvec && σisvec
+                    push!(q.args, :($sym = μ[$j] + σ[$j] * y[$ind]))
+                    track_y && push!(q.args, :(∂y[$ind] = σ[$j]))
+                elseif μisvec
+                    push!(q.args, :($sym = μ[$j] + σ * y[$ind]))
+                else #if σisvec
+                    push!(q.args, :($sym = μ + σ[$j] * y[$ind]))
+                    track_y && push!(q.args, :(∂y[$ind] = σ[$j]))
+                end
+                push!(q.args, :(xout[$ind] = $sym))
+            else
+                if μisvec && σisvec
+                    push!(q.args, :($sym = μ[$j] + σ[$j] * y[$ind]))
+                    track_y && push!(∂yexpr.args, :(σ[$j]))
+                elseif μisvec
+                    push!(q.args, :($sym = μ[$j] + σ * y[$ind]))
+                else #if σisvec
+                    push!(q.args, :($sym = μ + σ[$j] * y[$ind]))
+                    track_y && push!(∂yexpr.args, :(σ[$j]))
+                end
+                push!(outtup.args, sym)
             end
-            push!(outtup.args, sym)
         end
     end
-    for p ∈ M+1:P
-        push!(outtup.args, zero(T))
+    if !sp
+        for p ∈ M+1:P
+            push!(outtup.args, zero(T))
+        end
+        push!(q.args, :(xout = ConstantFixedSizePaddedVector{$M,$T,$P}($outtup) ))
     end
-    push!(q.args, :(xout = ConstantFixedSizePaddedVector{$M,$T,$P}($outtup) ))
     return_expr = Expr(:tuple, :xout )
     if track_y
         if σisvec
-            for p ∈ M+1:P
-                push!(∂yexpr.args, zero(T))
+            if !sp
+                for p ∈ M+1:P
+                    push!(∂yexpr.args, zero(T))
+                end
+                push!(q.args, :( ∂y = ConstantFixedSizePaddedVector{$M,$T,$P}($∂yexpr) ))
             end
-            push!(q.args, :( ∂y = ConstantFixedSizePaddedVector{$M,$T,$P}($∂yexpr) ))
             push!(return_expr.args, :(LinearAlgebra.Diagonal(∂y)) )
         else
             push!(return_expr.args,  :(LinearAlgebra.UniformScaling(σ)) )
@@ -487,7 +530,7 @@ function HierarchicalCentering_quote(
         @fastmath @inbounds begin
             $q
         end
-        $(ProbabilityDistributions.return_expression(return_expr))
+        $(ProbabilityDistributions.return_expression(return_expr,sp))
     end
 end
 
@@ -499,7 +542,7 @@ end
         ) where {M,T}
         # ) where {T,M}
 
-    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, (false,false,false), false)
+    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, (false,false,false), false, false)
 end
 
 @generated function ∂HierarchicalCentering(
@@ -511,7 +554,7 @@ end
         # ) where {T,M,track}
         ) where {M,T,track}
 
-    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, track, true)
+    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, track, true, false)
 end
 
 @generated function HierarchicalCentering(
@@ -522,7 +565,7 @@ end
             ::Domains{S}
         ) where {M,N,T,P,S}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, true, true, S, (false,false,false))
+    HierarchicalCentering_quote(M, P, T, true, true, S, (false,false,false),false)
 end
 @generated function HierarchicalCentering(
             #x::AbstractFixedSizePaddedVector{M,T},
@@ -532,7 +575,7 @@ end
             ::Domains{S}
         ) where {M,N,T,P,S}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, true, false, S, (false,false,false))
+    HierarchicalCentering_quote(M, P, T, true, false, S, (false,false,false),false)
 end
 @generated function HierarchicalCentering(
             #x::AbstractFixedSizePaddedVector{M,T},
@@ -542,7 +585,7 @@ end
             ::Domains{S}
         ) where {M,N,T,P,S}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, false, true, S, (false,false,false))
+    HierarchicalCentering_quote(M, P, T, false, true, S, (false,false,false),false)
 end
 @generated function ∂HierarchicalCentering(
             #x::AbstractFixedSizePaddedVector{M,T},
@@ -553,7 +596,7 @@ end
         ) where {M,N,S,T,track,P}
         # ) where {M,N,T,S,track,P}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, true, true, S, track)
+    HierarchicalCentering_quote(M, P, T, true, true, S, track,false)
 end
 @generated function ∂HierarchicalCentering(
             #x::AbstractFixedSizePaddedVector{M,T},
@@ -563,7 +606,7 @@ end
             ::Domains{S}, ::Val{track}
         ) where {M,N,T,S,track,P}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, true, false, S, track)
+    HierarchicalCentering_quote(M, P, T, true, false, S, track,false)
 end
 @generated function ∂HierarchicalCentering(
             #x::AbstractFixedSizePaddedVector{M,T},
@@ -573,7 +616,91 @@ end
             ::Domains{S}, ::Val{track}
         ) where {M,N,T,S,track,P}
     @assert length(S) == N
-    HierarchicalCentering_quote(M, P, T, false, true, S, track)
+    HierarchicalCentering_quote(M, P, T, false, true, S, track,false)
+end
+
+
+@generated function HierarchicalCentering(
+    sp::StackPointer,
+    y::AbstractFixedSizePaddedVector{M,T},
+    μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
+    σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}}
+) where {M,T}
+    # ) where {T,M}
+    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, (false,false,false), false, true)
+end
+
+@generated function ∂HierarchicalCentering(
+    sp::StackPointer,
+    y::AbstractFixedSizePaddedVector{M,T},
+    μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
+    σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
+    ::Val{track}
+    # ) where {T,M,track}
+) where {M,T,track}
+    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, track, true, true)
+end
+
+@generated function HierarchicalCentering(
+    sp::StackPointer,
+    y::AbstractFixedSizePaddedVector{M,T,P},
+    μ::AbstractFixedSizePaddedVector{N,T},
+    σ::AbstractFixedSizePaddedVector{N,T},
+    ::Domains{S}
+) where {M,N,T,P,S}
+    @assert length(S) == N
+    HierarchicalCentering_quote(M, P, T, true, true, S, (false,false,false),true)
+end
+@generated function HierarchicalCentering(
+    sp::StackPointer,
+    y::AbstractFixedSizePaddedVector{M,T,P},
+    μ::AbstractFixedSizePaddedVector{N,T},
+    σ::T,
+    ::Domains{S}
+) where {M,N,T,P,S}
+    @assert length(S) == N
+    HierarchicalCentering_quote(M, P, T, true, false, S, (false,false,false),true)
+end
+@generated function HierarchicalCentering(
+    sp::StackPointer,
+    y::AbstractFixedSizePaddedVector{M,T,P},
+    μ::T,
+    σ::AbstractFixedSizePaddedVector{N,T},
+    ::Domains{S}
+) where {M,N,T,P,S}
+    @assert length(S) == N
+    HierarchicalCentering_quote(M, P, T, false, true, S, (false,false,false),true)
+end
+@generated function ∂HierarchicalCentering(
+    sp::StackPointer,
+    y::AbstractFixedSizePaddedVector{M,T,P},
+    μ::AbstractFixedSizePaddedVector{N,T},
+    σ::AbstractFixedSizePaddedVector{N,T},
+    ::Domains{S}, ::Val{track}
+) where {M,N,S,T,track,P}
+    # ) where {M,N,T,S,track,P}
+    @assert length(S) == N
+    HierarchicalCentering_quote(M, P, T, true, true, S, track, true)
+end
+@generated function ∂HierarchicalCentering(
+    sp::StackPointer,
+    y::AbstractFixedSizePaddedVector{M,T,P},
+    μ::AbstractFixedSizePaddedVector{N,T},
+    σ::T,
+    ::Domains{S}, ::Val{track}
+) where {M,N,T,S,track,P}
+    @assert length(S) == N
+    HierarchicalCentering_quote(M, P, T, true, false, S, track,true)
+end
+@generated function ∂HierarchicalCentering(
+    sp::StackPointer,
+    y::AbstractFixedSizePaddedVector{M,T,P},
+    μ::T,
+    σ::AbstractFixedSizePaddedVector{N,T},
+    ::Domains{S}, ::Val{track}
+) where {M,N,T,S,track,P}
+    @assert length(S) == N
+    HierarchicalCentering_quote(M, P, T, false, true, S, track,true)
 end
 
 #@support_stack_pointer HierarchicalCentering
