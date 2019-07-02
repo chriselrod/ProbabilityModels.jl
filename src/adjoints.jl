@@ -94,20 +94,21 @@ end
     sp::StackPointer,
     A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,PA},
     ::Reducer{:row},
-    C::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractMutableFixedSizePaddedVector{N,T,PC,PC}}
+    C′::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractMutableFixedSizePaddedVector{N,T,PC,PC}}
 ) where {M,N,T,PA,PC}
     quote
         #        reduction = PtrVector{N,T,P,P}(pointer(sp,T))
-        C′ = C'
+        C = C′'
+        D = PtrVector{$N,$T,$PC,$PC}(pointer(sp,$T))
         @inbounds for n ∈ 0:(N-1)
             sₙ = zero(T)
             @vvectorize $T for m ∈ 1:$M
                 sₙ += A[m + $PA*n]
             end
 #            reduction[n+1] = sₙ
-            C′[n+1] += sₙ
+            D[n+1] = C[n+1] + sₙ
         end
-        sp, C
+        sp + $(sizeof(T)*PC), D'
     end
 end
 @generated function Base.:*(a::LinearAlgebra.Adjoint{T,<:AbstractVector{T}}, ::Reducer{S}) where {T,S}
@@ -149,11 +150,10 @@ end
     # @assert sum(S) == M
     N = length(S)
     q = quote
-        sp, out = PtrVector{$N,$T}(sp)
+        out = PtrVector{$N,$T,$N,$N}(pointer(sp,$T))
     end
     outtup = Expr(:tuple,)
     ind = 0
-    ind2 = 0
     for (j,s) ∈ enumerate(S)
         ind += 1
         accumulate_sym = gensym()
@@ -162,14 +162,13 @@ end
             ind += 1
             push!(q.args, :($accumulate_sym += a[$ind]))
         end
-        ind2 += 1
-        push!(q.args, :(out[$ind2] = $accumulate_sym))
+        push!(q.args, :(out[$j] = $accumulate_sym))
     end
     quote
         @fastmath @inbounds begin
             $q
         end
-        sp, out'
+        sp + $(sizeof(T)*N), out'
     end
 end
 @generated function Base.:*(A::AbstractMatrix{T}, ::Reducer{S}) where {T,S}

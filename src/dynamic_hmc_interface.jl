@@ -1078,7 +1078,7 @@ function NUTS_init_tune_threaded(ℓ, N; nchains = Base.Threads.nthreads(), args
 end
 
 function NUTS_init_tune_distributed(ℓ, N; nchains = nprocs()-1, args...)
-    paired_res = pmap(i -> NUTS_init_tune_mcmc_default(ℓ, N; args...), 1:nchains)
+    paired_res = pmap(_ -> (@time NUTS_init_tune_mcmc_default(ℓ, N; args...)), 1:nchains)
     getindex.(paired_res, 1), getindex.(paired_res, 2)
 end
 

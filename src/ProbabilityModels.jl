@@ -46,6 +46,9 @@ function __init__()
     # Threads.@threads for i ∈ eachindex(GLOBAL_WORK_BUFFER)
     #     GLOBAL_WORK_BUFFER[i] = Vector{UInt8}(0)
     # end
+#    for m ∈ (:ITPExpectedValue, :∂ITPExpectedValue)
+#        push!(PaddedMatrices.STACK_POINTER_SUPPORTED_METHODS, m)
+#    end
     for m ∈ (:ITPExpectedValue, :∂ITPExpectedValue, :HierarchicalCentering, :∂HierarchicalCentering)
         push!(PaddedMatrices.STACK_POINTER_SUPPORTED_METHODS, m)
     end
