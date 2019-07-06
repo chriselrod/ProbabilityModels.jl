@@ -5,6 +5,9 @@ end
 @inline Random.rand(pcg::ScalarVectorPCG) = rand(pcg.scalar)
 @inline Random.randn(pcg::ScalarVectorPCG) = randn(pcg.scalar)
 @inline Random.randexp(pcg::ScalarVectorPCG) = randexp(pcg.scalar)
+@inline Random.rand!(pcg::ScalarVectorPCG, A::AbstractArray) = rand!(pcg.vector, A)
+@inline Random.randn!(pcg::ScalarVectorPCG, A::AbstractArray) = randn!(pcg.vector, A)
+@inline Random.randexp!(pcg::ScalarVectorPCG, A::AbstractArray) = randexp!(pcg.vector, A)
 @inline Random.rand(pcg::ScalarVectorPCG, ::Type{Float32}) = rand(pcg.scalar, Float32)
 @inline Random.randn(pcg::ScalarVectorPCG, ::Type{Float32}) = randn(pcg.scalar, Float32)
 @inline Random.randexp(pcg::ScalarVectorPCG, ::Type{Float32}) = randexp(pcg.scalar, Float32)
@@ -937,9 +940,16 @@ function DynamicHMC.tune(
     Σ = sample_diagcov(sample, regularize, Val{P}())
     κ = DynamicHMC.GaussianKE(Σ)
 #=    Σ = DynamicHMC.sample_cov(sample)
-    δΣ = UniformScaling(median!(diag(Σ))) - Σ
-    @. Σ += δΣ * regularize/N
-    κ = DynamicHMC.GaussianKE(Σ, inv(cholesky(Symmetric(Σ)).U))=#
+#    δΣ = UniformScaling(median!(diag(Σ))) - Σ
+#    δΣ = UniformScaling(Tf(1e-3)) - Σ
+    #    @. Σ += δΣ * regularize/N
+    coef = Tf(N/(N+regularize))
+    incr = Tf(1e-3 * (regularize / (N + regularize)))# * I
+    @. Σ = coef * Σ# + incr)
+    @inbounds for p ∈ 1:P
+        Σ[p,p] += incr
+    end
+    κ = DynamicHMC.GaussianKE(Σ, LinearAlgebra.inv!(cholesky(Symmetric(Σ)).U))=#
     DynamicHMC.NUTS(rng, DynamicHMC.Hamiltonian(H.ℓ, κ), last_position(sample), DynamicHMC.get_final_ϵ(A), max_depth, report)
 end
 function DynamicHMC.tune(
