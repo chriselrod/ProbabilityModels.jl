@@ -70,14 +70,15 @@ end
 end
 function threadrandinit()
     N = Base.Threads.nthreads()
+    P = 4
     W = VectorizationBase.pick_vector_width(Float64)
-    rngs = Vector{ScalarVectorPCG{4}}(undef, N)
-    seeds = rand(UInt64, 4W*N)
+    rngs = Vector{ScalarVectorPCG{P}}(undef, N)
+    seeds = rand(UInt64, P*W*N)
     myprocid = myid()-1
     Base.Threads.@threads for n ∈ 1:N
         rngs[n] = ScalarVectorPCG(
             RandomNumbers.PCG.PCGStateUnique(PCG.PCG_RXS_M_XS),
-            VectorizedRNG.PCG(ntuple(j -> seeds[j+4W*((n-1))], Val(4W)), (n-1) + N*myprocid )
+            VectorizedRNG.PCG(ntuple(w -> seeds[w+W*P*((n-1))], Val(P*W)), (n-1) + N*myprocid )
         )
     end
     rngs
