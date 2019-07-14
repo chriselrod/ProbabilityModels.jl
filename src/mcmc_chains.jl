@@ -35,10 +35,9 @@ end
 ### While not optimized, the outputs are at least not Any[]    
 function MCMCChains.ess(
     chn::MCMCChains.AbstractChains;
-    showall=false,
+    showall::Bool=false,
     sections::Union{Symbol, Vector{Symbol}}=Symbol[:parameters],
-    maxlag = 250,
-    digits=missing
+    maxlag = 250
 )
     param = showall ? names(chn) : names(chn, sections)
     n_chain_orig = size(chn, 3)
