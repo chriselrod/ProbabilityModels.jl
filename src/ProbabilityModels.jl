@@ -38,9 +38,9 @@ PaddedMatrices.@support_stack_pointer HierarchicalCentering
 PaddedMatrices.@support_stack_pointer ∂HierarchicalCentering
 function __init__()
     @eval const GLOBAL_ScalarVectorPCGs = threadrandinit()
-    # Allocates 1 GiB per thread for the stack by default.
+    # Allocates 0.5 GiB per thread for the stack by default.
     # Can be controlled via the environmental variable PROBABILITY_MODELS_STACK_SIZE
-    @eval const STACK_POINTER = PaddedMatrices.StackPointer( Libc.malloc(Threads.nthreads() * nprocs() * get(ENV, "PROBABILITY_MODELS_STACK_SIZE", 1 << 31 ) ))
+    @eval const STACK_POINTER = PaddedMatrices.StackPointer( Libc.malloc(Threads.nthreads() * nprocs() * get(ENV, "PROBABILITY_MODELS_STACK_SIZE", 1 << 29 ) ))
     STACK_POINTER_REF[] = STACK_POINTER
     # @eval const GLOBAL_WORK_BUFFER = Vector{Vector{UInt8}}(Base.Threads.nthreads())
     # Threads.@threads for i ∈ eachindex(GLOBAL_WORK_BUFFER)
