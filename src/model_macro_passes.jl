@@ -543,7 +543,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
             if $(variable_type_names[i]) <: Val
                 # println($(variable_type_names[i]), "isa Val.")
 #                push!(model_parameters, $(QuoteNode(variables[i])))
-                ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, nothing, $logjac)
+                ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, nothing, $logjac)
                 push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
             end
         end)
@@ -552,7 +552,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
             if $(variable_type_names[i]) <: Val
                 # println($(variable_type_names[i]), "isa Val.")
 #                push!(model_parameters, $(QuoteNode(variables[i])))
-                ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false)
+                ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false)
                 if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: DistributionParameters.ScalarParameter
               push!(first_pass.args, Expr(:call, :(ProbabilityModels.VectorizationBase.store!),
                                           Expr(:call, :pointer, Symbol("##stack_pointer##"), $(QuoteNode(T))), $(QuoteNode(variables[i]))))
@@ -739,14 +739,28 @@ function generate_generated_funcs_expressions(model_name, expr)
             #     end
             # end)
             load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
+            missingvar = Symbol("##missing##", variables[i])
+            incompletevar = Symbol("##incomplete##", variables[i])
+            load_incomplete_data = Expr(:quote, :($incompletevar = $ℓ.$(variables[i])))
             push!(θq_body, quote
                 if $(variable_type_names[i]) <: Val
                     push!(model_parameters, $(QuoteNode(variables[i])))
-                    ProbabilityModels.DistributionParameters.load_parameter(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), $return_partials, ProbabilityModels, Symbol("##stack_pointer##"))
+                  ProbabilityModels.DistributionParameters.load_parameter!(
+                      first_pass.args, second_pass.args,
+                      $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])),
+                      $return_partials, ProbabilityModels, Symbol("##stack_pointer##")
+                  )
                     # if !$return_partials
                     #     push!(first_pass.args, Expr(:call, :println, $(string(variables[i]))))
                     #     push!(first_pass.args, Expr(:call, :println, $(QuoteNode(variables[i]))))
                   # end
+                elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
+                    push!(model_parameters, $(QuoteNode(missingvar)))
+                    push!(first_pass.args, $load_incomplete_data)
+                  ProbabilityModels.DistributionParameters.load_parameter!(
+                      first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
+                      $return_partials, ProbabilityModels, Symbol("##stack_pointer##")
+                  )
                 else
                     push!(first_pass.args, $load_data)
                 end
