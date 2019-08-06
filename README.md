@@ -60,7 +60,7 @@ BLAS.set_num_threads(1)
     Σ = CovarianceMatrix(ρ, Diagonal(σ) * L, time)
 
 	# Tuple (Y₁, Y₂)
-    Y ~ Normal((μ₁, μ₂)[AvailableData], Σ[AvailableData])
+	(Y₁, Y₂) ~ Normal((μ₁, μ₂)[AvailableData], Σ[AvailableData])
 
 end
 end
@@ -116,12 +116,11 @@ function generate_true_parameters(domains, time, κ₀)
     K = sum(domains)
     D = length(domains)
     T = length(time)
-#    domain_means = randn(n_domains); domain_means .*= 10
+
     μ = MutableFixedSizePaddedVector{K,Float64}(undef)
 
     offset = 0
     for i ∈ domains
-#        global offset
         domain_mean = 5randn()
         for j ∈ 1+offset:i+offset
             μ[j] = domain_mean + 5randn()
@@ -133,10 +132,8 @@ function generate_true_parameters(domains, time, κ₀)
 
     ρ = PaddedMatrices.randbeta(4.0,4.0)
 
-#    β = [0.1i - 0.15 for j ∈ 1:K, i ∈ 1:2]
     κ = rinvscaledgamma(Val(K), κ₀...)
     lt = last(time)
-#    β₁ = MutableFixedSizePaddedVector{7,Float64,7,7}((-0.0625, -0.0575, -0.0525, -0.0475, -0.0425, -0.04, -0.0375))
     β = MutableFixedSizePaddedVector{7,Float64,7,7}(( 0.0625,  0.0575,  0.0525,  0.0475,  0.0425,  0.04,  0.0375))
     θ₁ = @. μ' - β' * ( 1.0 - exp( - κ' * time) ) / (1.0 - exp( - κ' * lt) ) 
     θ₂ = @. μ' + β' * ( 1.0 - exp( - κ' * time) ) / (1.0 - exp( - κ' * lt) ) 
@@ -145,10 +142,8 @@ function generate_true_parameters(domains, time, κ₀)
     @inbounds for tc ∈ 2:T, tr ∈ 1:tc-1
         L_T[tr,tc] = 0.0
     end
-#    K = 7
     X = PaddedMatrices.MutableFixedSizePaddedMatrix{K,K+3,Float64,K}(undef); randn!(X)
     U_K, info = LAPACK.potrf!('U', BLAS.syrk!('U', 'N', σ, X, 0.0, zero(MutableFixedSizePaddedMatrix{K,K,Float64,K})))
-#U_K
     (
         U_K = U_K, L_T = L_T, μ = μ, θ₁ = θ₁, θ₂ = θ₂, domains = domains, time = time
     )
@@ -206,12 +201,12 @@ sample_data( N, truth, missingness ) = sample_data( N, truth, missingness, truth
         inds = missingness.indices
         ITPModel(
             domains = truth.domains,
-            AvailableData = missingness,
-            Y = (DynamicPaddedMatrix(reshape(Y₁, (T * $K, N₁))[inds, :], (c, N₁)),
-                 DynamicPaddedMatrix(reshape(Y₂, (T * $K, N₂))[inds, :], (c, N₂))),
+	        AvailableData = missingness,
+            Y₁ = reshape(Y₁, (T * $K, N₁))[inds, :],
+            Y₂ = reshape(Y₂, (T * $K, N₂))[inds, :],
             time = truth.time,
             L = LKJCorrCholesky{$K},
-            ρ = UnitVector{$K},
+            ρ = RealVector{$K,Bounds(0,1)},
             lκ = RealVector{$K},
             θ = RealVector{$K},
             μₕ₁ = RealFloat,
@@ -220,9 +215,9 @@ sample_data( N, truth, missingness ) = sample_data( N, truth, missingness, truth
             μᵣ₂ = RealVector{$D},
             βᵣ₁ = RealVector{$K},
             βᵣ₂ = RealVector{$K},
-            σᵦ = PositiveFloat,
-            σₕ = PositiveFloat,
-            σ = PositiveVector{$K}
+            σᵦ = RealFloat{Bounds(0,Inf)},
+            σₕ = RealFloat{Bounds(0,Inf)},
+            σ = RealVector{$K,Bounds(0,Inf)}
         )
     end
 end

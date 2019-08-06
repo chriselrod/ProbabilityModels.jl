@@ -1,15 +1,5 @@
 
 
-# includet("/home/chriselrod/Documents/progwork/julia/model_macro_passes.jl")
-
-# using MacroTools
-# using MacroTools: striplines, @capture, prewalk, postwalk, @q
-# q = @q begin
-#     β₀ ~ Normal(μ₀, σ₀)
-#     β₁ ~ Normal(μ₁, σ₁)
-#     y ~ Bernoulli_logit(β₀ + x * β₁)
-# end
-
 function determine_variables(expr)
     variables = Set{Symbol}()
     ignored_symbols = Set{Symbol}()
@@ -56,104 +46,6 @@ function translate_sampling_statements(expr)
     end
 end
 
-# q2 = translate_sampling_statements(q)
-# postwalk(x -> (@show x), q2)
-# prewalk(x -> (@show x), q2)
-
-
-#=
-function flatten_subexpression!(flattened, args::AbstractVector)
-    map(args) do arg
-        flatten_subexpression!(flattened, arg)
-    end
-end
-function flatten_subexpression!(flattened, arg::Expr)
-    postwalk(arg) do x
-#        @show x
-        if @capture(x, f_(args__))
-            a = gensym()
-            push!(flattened, :($a = $f($(args...))))
-            return a
-        elseif @capture(x, A_[I__])
-            a = gensym()
-            push!(flattened, :($a = getindex($A, $(I...))))
-            return a
-        else
-            return x
-        end
-    end
-end
-flatten_subexpression!(::Any, s::Symbol) = s
-
-"""
-Converts an expression into a sequence of single assignment codes (SACs)
-
-To be replaced with Meta.lower(ProbabilityModels, expr)
-"""
-function flatten_expression(expr)
-#    println(expr)
-#    println("\n\n\n")
-    q_flattened = @q begin end
-    flattened = q_flattened.args
-    for ex ∈ expr.args
-        if ex isa Symbol
-            continue
-        elseif @capture(ex, for i_ ∈ iter_ body_ end)
-            push!(flattened, quote
-                for $i ∈ $iter
-                    $(flatten_expression(Expr(:block, body)))
-                end
-            end)
-            continue
-        elseif @capture(ex, a_ = f_(args__))
-            args2 = flatten_subexpression!(flattened, args)
-            push!(flattened, :($a = $f($(args2...))))
-        elseif @capture(ex, a_ += f_(args__))
-            args2 = flatten_subexpression!(flattened, args)
-            b = gensym()
-            push!(flattened, quote
-                $b = $f($(args2...))
-                $a = $a + $b
-            end)
-        elseif @capture(ex, a_ += b_)
-            push!(flattened, :($a = $a + $b))
-        elseif @capture(ex, a_ -= f_(args__))
-            args2 = flatten_subexpression!(flattened, args)
-            b = gensym()
-            push!(flattened, quote
-                $b = $f($(args2...))
-                $a = $a - $b
-            end)
-        elseif @capture(ex, a_ -= b_)
-            push!(flattened, :($a = $a - $b))
-        elseif @capture(ex, a_ *= f_(args__))
-            args2 = flatten_subexpression!(flattened, args)
-            b = gensym()
-            push!(flattened, quote
-                $b = $f($(args2...))
-                $a = $a * $b
-            end)
-        elseif @capture(ex, a_ *= b_)
-            push!(flattened, :($a = $a * $b))
-        elseif @capture(ex, a_ /= f_(args__))
-            args2 = flatten_subexpression!(flattened, args)
-            b = gensym()
-            push!(flattened, quote
-                $b = $f($(args2...))
-                $a = $a / $b
-            end)
-        elseif @capture(ex, a_ /= b_)
-            push!(flattened, :($a = $a / $b))
-        elseif ex isa Expr && ex.head = :tuple
-            
-#        else
-#            @show ex
-        end
-    end
-#    println(q_flattened)
-    q_flattened
-end
-=#
 ssa_sym(i::Int) = Symbol("##SSAValue##$(i)##")
 function ssa_to_sym(expr)
     postwalk(expr) do ex
@@ -452,6 +344,7 @@ end
 
 types_to_vals(::Type{T}) where {T} = Val{T}()
 types_to_vals(v) = v
+types_to_vals(v::AbstractArray{Union{Missing,T}}) where {T} = DistributionParameters.maybe_missing(A)
 extract_typeval(::Type{Val{T}}) where {T} = T
 extract_typeval(::Type{Val{Type{T}}}) where {T} = T
 
@@ -518,7 +411,9 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
             $([quote
                if $v <: Val
                # @show $v
-               $Nconstrainedparam += ProbabilityModels.PaddedMatrices.type_length(ProbabilityModels.extract_typeval($v))
+                   $Nconstrainedparam += ProbabilityModels.PaddedMatrices.type_length(ProbabilityModels.extract_typeval($v))
+               elseif $v <: MissingDataArray
+                   $Nconstrainedparam += ProbabilityModels.PaddedMatrices.type_length($v)
                end
                end for v ∈ variable_type_names]...)
             $Nconstrainedparam
@@ -532,12 +427,9 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
 
 
     for i ∈ eachindex(variables)
-        # push!(q_body, quote
-        #     if $(variable_type_names[i]) <: Val
-        #         push!(model_parameters, $(variables[i]))
-        #     end
-        # end)
         load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
+        missingvar = Symbol("##missing##", variables[i])
+        load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), Expr(:., ℓ, variables[i])))
         push!(θq_body, quote
             # @show $(variable_type_names[i])
             if $(variable_type_names[i]) <: Val
@@ -554,7 +446,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
 #                push!(model_parameters, $(QuoteNode(variables[i])))
                 ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false)
                 if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: DistributionParameters.ScalarParameter
-              push!(first_pass.args, Expr(:call, :(ProbabilityModels.VectorizationBase.store!),
+                    push!(first_pass.args, Expr(:call, :(ProbabilityModels.VectorizationBase.store!),
                                           Expr(:call, :pointer, Symbol("##stack_pointer##"), $(QuoteNode(T))), $(QuoteNode(variables[i]))))
                     push!(first_pass.args, Expr(:(+=), Symbol("##stack_pointer##"), Expr(:call, :sizeof, $(QuoteNode(T)) )))
 #                    push!(first_pass.args, :(VectorizationBase.store!(pointer(sp, $(QuoteNode(T))), $(QuoteNode(variables[i]))) ))
@@ -562,7 +454,13 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
               end
 #              push!(first_pass.args, :(@show reinterpret(Int, pointer($(Symbol("##stack_pointer##")),Float64) - origpointer)>>3 ))
 #                push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
-              
+              elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
+                  push!(model_parameters, $(QuoteNode(missingvar)))
+                  push!(first_pass.args, $load_incomplete_data)
+                  ProbabilityModels.DistributionParameters.load_missing_as_vector!(
+                      first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
+                      false, ProbabilityModels, Symbol("##stack_pointer##")
+                  )
             end
        end)
     end
@@ -600,23 +498,17 @@ function generate_generated_funcs_expressions(model_name, expr)
     var_vartype_pairs = [:( $(variables[i])::$(variable_type_names[i]) ) for i ∈ eachindex(variables)]
     struct_quote = quote
         struct $model_name{$Nparam, $(variable_type_names...)} <: ProbabilityModels.AbstractProbabilityModel{$Nparam}
-            # ∇RESERVED::PaddedMatrices.MutableFixedSizePaddedVector{$Nparam,$T,$stride,$L1}
-            # ΣRESERVED::PaddedMatrices.MutableFixedSizePaddedMatrix{$Nparam,$Nparam,$T,$stride,$L2}
             $(var_vartype_pairs...)
         end
     end
-    # struct_kwarg_quote = quote
-    #     function $model_name(; $([:($(variables[i])::$(variable_type_names[i])) for i ∈ eachindex(variables)]...))
-    #         $model_name()
-    #     end
-    # end
+
     struct_kwarg_quote = quote
         function $model_name(; $(var_vartype_pairs...)) where {$(variable_type_names...)}
             $Nparam = 0
             # @show $(variables...)
             # @show $(variable_type_names...)
             $([quote
-                if isa(ProbabilityModels.types_to_vals($v), Val)
+                if isa(ProbabilityModels.types_to_vals($v), Val) || isa($v, MissingDataArray)
                     # @show $v
                     $Nparam += ProbabilityModels.PaddedMatrices.param_type_length($v)
                 end
@@ -631,48 +523,15 @@ function generate_generated_funcs_expressions(model_name, expr)
     # Translate the sampling statements, and then flatten the expression to remove nesting.
     expr = translate_sampling_statements(expr) |>
                 flatten_expression# |>
-                # ProbabilityModels.rename_assignments
-
-    # for Value definition:
-    # flattened expression needs a tracking pass
-    #
-    # for ValueGradient:
-    # diff!
-
-    # both also need unconstraining pass (with and without addition of derivatives)
-
 
     # The plan in this definition is to make each keyword arg default to the appropriate field of ℓ
     # This allows one to optionally override in the case of a single evaluation.
     # Additionally, it will throw an error if one of the required fields was not defined.
-    # q = quote
-    #     @generated function logdensity(::Type{LogDensityProblems.Value},
-    #             ℓ::$(model_name){$(variable_type_names...)};
-    #             $([:($v = ℓ.$v) for v ∈ variables]...)) where {$(variable_type_names...)}
-    #
-    #     end
-    # end
+
     V = gensym(:V)
     ℓ = gensym(:ℓ)
     θ = gensym(:θ)
     Tθ = gensym(:Tθ)
-
-    # q = quote
-    #     @generated function LogDensityProblems.logdensity(::Type{$V}, $ℓ::$(model_name);
-    #             $([:($(variables[i])::$(variable_type_names[i]) = $ℓ.$(variables[i])) for i ∈ eachindex(variables)]...)
-    #             ) where {$V, $(variable_type_names...)}
-    #
-    #
-    #         return_partials = $V == LogDensityProblems.ValueGradient
-    #         model_parameters = Symbol[]
-    #         first_pass = quote end
-    #         second_pass = quote end
-    #
-    #
-    #     end
-    # end
-    # q_body = q.args[end].args[end].args[end].args;
-    # push!(q_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
 
     constrain_quote, cvq, pn, clq  = load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T)
 
@@ -680,13 +539,11 @@ function generate_generated_funcs_expressions(model_name, expr)
     θq_value = quote
         @generated function ProbabilityModels.LogDensityProblems.logdensity(::Type{ProbabilityModels.LogDensityProblems.Value}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}) where {$Nparam, $T, $(variable_type_names...)}
 
-
             TLθ = $Nparam
             return_partials = false
             model_parameters = Symbol[]
             first_pass = quote end
             second_pass = quote end
-
 
         end
     end
@@ -698,13 +555,11 @@ function generate_generated_funcs_expressions(model_name, expr)
                         $θ::AbstractVector{$T}
                     ) where {$Nparam, $T, $(variable_type_names...)}
 
-
             TLθ = $Nparam
             return_partials = true
             model_parameters = Symbol[]
             first_pass = quote end
             second_pass = quote end
-
 
         end
     end
@@ -715,13 +570,11 @@ function generate_generated_funcs_expressions(model_name, expr)
                         $θ::AbstractVector{$T}
                     ) where {$Nparam, $T, $(variable_type_names...)}
 
-
             TLθ = $Nparam
             return_partials = true
             model_parameters = Symbol[]
             first_pass = quote end
             second_pass = quote end
-
 
         end
     end
@@ -731,17 +584,16 @@ function generate_generated_funcs_expressions(model_name, expr)
         push!(θq_body, :(expr = $(Expr(:quote, deepcopy(expr)))))
         # Now, we work on assembling the function.
 
-
         for i ∈ eachindex(variables)
-            # push!(q_body, quote
-            #     if $(variable_type_names[i]) <: Val
-            #         push!(model_parameters, $(variables[i]))
-            #     end
-            # end)
             load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
+              load_data_ptr_array = Expr(:quote,
+                                         :($(variables[i]) = ProbabilityModels.PaddedMatrices.DynamicPtrArray(
+                                             pointer( $ℓ.$(variables[i])),
+                                             size($ℓ.$(variables[i])),
+                                             size($ℓ.$(variables[i]),1)) )
+                                         )
             missingvar = Symbol("##missing##", variables[i])
-            incompletevar = Symbol("##incomplete##", variables[i])
-            load_incomplete_data = Expr(:quote, :($incompletevar = $ℓ.$(variables[i])))
+            load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), Expr(:., ℓ, variables[i])))
             push!(θq_body, quote
                 if $(variable_type_names[i]) <: Val
                     push!(model_parameters, $(QuoteNode(variables[i])))
@@ -761,6 +613,8 @@ function generate_generated_funcs_expressions(model_name, expr)
                       first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
                       $return_partials, ProbabilityModels, Symbol("##stack_pointer##")
                   )
+                elseif $(variable_type_names[i]) <: Array
+                    push!(first_pass.args, $load_data_ptr_array)
                 else
                     push!(first_pass.args, $load_data)
                 end
@@ -768,61 +622,21 @@ function generate_generated_funcs_expressions(model_name, expr)
         end
 
         if return_partials
-            # qprocessing = quote
-            #     second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
-            #     ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
-            #     # variable renaming rather than incrementing makes initiazing
-            #     # target to an integer okay.
-            #     expr_out = quote
-            #         # target = 0
-            #         $first_pass
-            #         $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
-            #         $second_pass
-            #         (
-            #             $(name_dict[:target]),
-            #             $(Expr(:tuple, [Symbol("###seed###", mp) for mp ∈ model_parameters]...))
-            #         )
-            #     end
-            # end
-
             processing = quote
                 # println("About to rename assginemtns:\n")
                 # display(second_pass)
-#                second_pass, name_dict = ProbabilityModels.rename_assignments(second_pass, name_dict)
                 # println("\nRenamed assginemtns:\n")
                 # display(second_pass)
-                # TLθ = ProbabilityModels.PaddedMatrices.type_length($θ) # This refers to the type of the input
-                # TLθ = ProbabilityModels.PaddedMatrices.tonumber(ProbabilityModels.DynamicHMC.dimension($ℓ))
                 ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
- #               first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(QuoteNode(Symbol("##stack_pointer##"))))
- #               second_pass = PaddedMatrices.stack_pointer_pass(second_pass, $(QuoteNode(Symbol("##stack_pointer##"))))
                 expr_out = quote
                     target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
-#                    target = zero(ProbabilityModels.DistributionParameters.Target{$T_sym})
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
                     $(Symbol("##stack_pointer##")) = ProbabilityModels.STACK_POINTER
                     $first_pass
-                    # $(Symbol("##∂θparameter##m")) = $ℓ_sym.∇RESERVED
-                    # $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
-                    # $(2TLθ > ProbabilityModels.VectorizationBase.REGISTER_SIZE ? )
-                    # $(Symbol("##∂θparameter##m")) = ProbabilityModels.PaddedMatrices.mutable_similar($θ_sym)
-                    # $(Symbol("##∂θparameter##m")) = $(Symbol("##vgb##")).buffer
                     $(Symbol("##∂θparameter##m")) = ProbabilityModels.new_gradient($(Symbol("##vgb##")), $θ_sym)
                     $(Symbol("##∂θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
                     $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
-                    # $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.Reducer{:row}()
                     $second_pass
-
-                    # LogDensityProblems.ValueGradient(
-                    #     isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##m"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
-                    #     $(Symbol("##∂θparameter##m"))
-                    # )
-                    #
-                    # $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
-                    # LogDensityProblems.ValueGradient(
-                    #     isfinite($(name_dict[:target])) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(name_dict[:target]) : $T_sym(-Inf)) : $T_sym(-Inf),
-                    #     $(Symbol("##∂θparameter##mconst"))
-                    # )
                 end
                 # VectorizationBase.REGISTER_SIZE is in bytes, so this is asking if 4 registers can hold the parameter vector
                 
@@ -845,15 +659,6 @@ function generate_generated_funcs_expressions(model_name, expr)
                 end
             end
         else
-            # qprocessing = quote
-            #     ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
-            #     expr_out = quote
-            #         # target = 0
-            #         $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
-            #         $first_pass
-            #         $(name_dict[:target])
-            #     end
-            # end
             processing = quote
                 ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
 #                first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(QuoteNode(Symbol("##stack_pointer##"))))
@@ -868,19 +673,6 @@ function generate_generated_funcs_expressions(model_name, expr)
                 end
             end
         end
-
-        # push!(q_body, quote
-        #     tracked_vars = Set(model_parameters)
-        #     first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
-        #     expr, name_dict = ProbabilityModels.rename_assignments(expr, name_dict)
-        #     θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
-        #     $qprocessing
-        #     quote
-        #         @fastmath @inbounds begin
-        #             $(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters))
-        #         end
-        #     end
-        # end)
         push!(θq_body, quote
             tracked_vars = Set(model_parameters)
 #            first_pass, name_dict = ProbabilityModels.rename_assignments(first_pass)
