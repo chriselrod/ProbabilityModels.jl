@@ -100,9 +100,9 @@ const n_endpoints = sum(domains)
 
 const times = MutableFixedSizePaddedVector{36,Float64,36,36}(undef); times .= 0:35;
 
-missing = push!(vcat(([1,0,0,0,0] for i ∈ 1:7)...), 1);
+structured_missing_pattern = push!(vcat(([1,0,0,0,0] for i ∈ 1:7)...), 1);
 missing_pattern = vcat(
-    missing, fill(1, 4length(times)), missing, missing
+    structured_missing_pattern, fill(1, 4length(times)), structured_missing_pattern, structured_missing_pattern
 );
 
 const availabledata = MissingDataVector{Float64}(missing_pattern);
@@ -181,8 +181,13 @@ end
     end
 end
 
-sample_data( N, truth, missingness ) = sample_data( N, truth, missingness, truth.domains )
-@generated function sample_data( N::Tuple{Int,Int}, truth, missingness, ::ProbabilityModels.Domains{S} ) where {S}
+sample_data( N, truth, missingness, missingvals = (Val{0}(),Val{0}()) ) = sample_data( N, truth, missingness, missingvals, truth.domains )
+@generated function sample_data(
+    N::Tuple{Int,Int},
+	truth, missingness,
+	::Tuple{Val{M1},Val{M2}} = (Val{0}(),Val{0}()),
+	::ProbabilityModels.Domains{S}
+) where {S,M1,M2}
     K = sum(S)
     D = length(S)
     quote
@@ -199,11 +204,36 @@ sample_data( N, truth, missingness ) = sample_data( N, truth, missingness, truth
         
         c = length(missingness.indices)
         inds = missingness.indices
+
+	    Y₁sub = reshape(Y₁, (T * $K, N₁))[inds, :]
+        $(M1 > 0 ? quote
+            Y₁union = Array{Union{Missing,Float64}}(Y₁sub)
+            perm = randperm(length(Y₁sub))
+            @inbounds for m in 1:$M1
+                Y₁union[perm[m]] = Base.missing
+	    	end
+    		Y₁ = convert(MissingDataArray{$M1,Bounds{-Inf,Inf}}, Y₁union)
+		end : quote
+			Y₁ = Y₁sub
+		end)
+
+        Y₂sub = Array{Union{Missing,Float64}}(reshape(Y₂, (T * $K, N₂))[inds, :])
+		$(M2 > 0 ? quote
+            Y₂union = Array{Union{Missing,Float64}}(Y₂sub)
+            perm = randperm(length(Y₂sub))
+			@inbounds for m in 1:$M2
+                Y₂union[perm[m]] = Base.missing
+            end
+            Y₂ = convert(MissingDataArray{$M2,Bounds{-Inf,Inf}},Y₂union)
+		end : quote
+		    Y₂ = Y₂sub
+		end)
+		
         ITPModel(
             domains = truth.domains,
 	        AvailableData = missingness,
-            Y₁ = reshape(Y₁, (T * $K, N₁))[inds, :],
-            Y₂ = reshape(Y₂, (T * $K, N₂))[inds, :],
+            Y₁ = Y₁,
+            Y₂ = Y₂,
             time = truth.time,
             L = LKJCorrCholesky{$K},
             ρ = RealVector{$K,Bounds(0,1)},
@@ -225,6 +255,8 @@ end
 truth = generate_true_parameters(domains, times, κ₀);
 
 data = sample_data((100,100), truth, availabledata); # Sample size of 100 for both treatment and placebo groups.
+
+mdata = sample_data((100,100), truth, availabledata); 
 
 ```
 The library [DistributionParameters.jl](https://github.com/chriselrod/DistributionParameters.jl) provides a variety of parameter types.

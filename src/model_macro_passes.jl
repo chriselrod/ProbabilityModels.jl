@@ -344,7 +344,7 @@ end
 
 types_to_vals(::Type{T}) where {T} = Val{T}()
 types_to_vals(v) = v
-types_to_vals(v::AbstractArray{Union{Missing,T}}) where {T} = DistributionParameters.maybe_missing(A)
+types_to_vals(A::AbstractArray{Union{Missing,T}}) where {T} = DistributionParameters.maybe_missing(A)
 extract_typeval(::Type{Val{T}}) where {T} = T
 extract_typeval(::Type{Val{Type{T}}}) where {T} = T
 
@@ -428,7 +428,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
 
     for i ∈ eachindex(variables)
         load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
-        missingvar = Symbol("##missing##", variables[i])
+#        missingvar = Symbol("##missing##", variables[i])
         load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), Expr(:., ℓ, variables[i])))
         push!(θq_body, quote
             # @show $(variable_type_names[i])
@@ -455,7 +455,8 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
 #              push!(first_pass.args, :(@show reinterpret(Int, pointer($(Symbol("##stack_pointer##")),Float64) - origpointer)>>3 ))
 #                push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
               elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
-                  push!(model_parameters, $(QuoteNode(missingvar)))
+                  push!(model_parameters, $(QuoteNode(variables[i])))
+#                 push!(model_parameters, $(QuoteNode(missingvar)))
                   push!(first_pass.args, $load_incomplete_data)
                   ProbabilityModels.DistributionParameters.load_missing_as_vector!(
                       first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
@@ -510,7 +511,10 @@ function generate_generated_funcs_expressions(model_name, expr)
             $([quote
                 if isa(ProbabilityModels.types_to_vals($v), Val) || isa($v, MissingDataArray)
                     # @show $v
-                    $Nparam += ProbabilityModels.PaddedMatrices.param_type_length($v)
+                   $Nparam += ProbabilityModels.PaddedMatrices.param_type_length($v)
+               elseif isa($v, AbstractArray{Union{Missing,T}} where T)
+                    $v = ProbabilityModels.DistributionParameters.maybe_missing($v)
+                   $Nparam += ProbabilityModels.PaddedMatrices.param_type_length($v)
                 end
             end for v ∈ variables]...)
             $model_name{$Nparam}($([:(ProbabilityModels.types_to_vals($v)) for v ∈ variables]...))
@@ -593,7 +597,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                                              size($ℓ.$(variables[i]),1)) )
                                          )
             missingvar = Symbol("##missing##", variables[i])
-            load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), Expr(:., ℓ, variables[i])))
+            load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), :($ℓ.$(variables[i]))))
             push!(θq_body, quote
                 if $(variable_type_names[i]) <: Val
                     push!(model_parameters, $(QuoteNode(variables[i])))
@@ -607,7 +611,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     #     push!(first_pass.args, Expr(:call, :println, $(QuoteNode(variables[i]))))
                   # end
                 elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
-                    push!(model_parameters, $(QuoteNode(missingvar)))
+                    push!(model_parameters, $(QuoteNode(variables[i])))
                     push!(first_pass.args, $load_incomplete_data)
                   ProbabilityModels.DistributionParameters.load_parameter!(
                       first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
@@ -688,7 +692,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     $(PaddedMatrices.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##")))))
                 end
               end
-#              println(MacroTools.striplines(final_quote))
+#              println(ProbabilityModels.MacroTools.striplines(final_quote))
 ##              println(final_quote)
 ##              println(ProbabilityModels.MacroTools.prettify(final_quote))
 ##              println(tracked_vars)
@@ -699,37 +703,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         # push!(θq_body, display())
     end
 
-
     # Now, we would like to apply
-    # reverse_diff_pass(expr, gradient_targets)
-
-    # dim_q = quote
-        # @generated function ProbabilityModels.LogDensityProblems.dimension(::Type{$(model_name){$(variable_type_names...)}}) where {$(variable_type_names...)}
-        #     dim = 0
-        #     $([quote
-        #         if $v <: Val
-        #             dim += ProbabilityModels.PaddedMatrices.param_type_length(ProbabilityModels.extract_typeval($v))
-        #         end
-        #     end for v ∈ variable_type_names]...)
-        #     ProbabilityModels.PaddedMatrices.Static{dim}()
-        #     # dim
-        # end
-        # @generated function ProbabilityModels.LogDensityProblems.dimension(::$(model_name){$(variable_type_names...)}) where {$(variable_type_names...)}
-        #     # dim = 0
-        #     # $([quote
-        #     #     if $v <: Val
-        #     #         dim += ProbabilityModels.PaddedMatrices.param_type_length(ProbabilityModels.extract_typeval($v))
-        #     #     end
-        #     # end for v ∈ variable_type_names]...)
-        #     # ProbabilityModels.PaddedMatrices.Static{dim}()
-        #     # # dim
-        #     ProbabilityModels.LogDensityProblems.dimension($(model_name){$(variable_type_names...)})
-        # end
-
-    # end
-
-
-    # struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, dim_q, variables
     struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, θq_valuegradientbuffer, constrain_quote, cvq, pn, clq, variables
 end
 
