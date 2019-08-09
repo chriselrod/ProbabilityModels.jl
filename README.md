@@ -185,7 +185,7 @@ sample_data( N, truth, missingness, missingvals = (Val{0}(),Val{0}()) ) = sample
 @generated function sample_data(
     N::Tuple{Int,Int},
 	truth, missingness,
-	::Tuple{Val{M1},Val{M2}} = (Val{0}(),Val{0}()),
+	::Tuple{Val{M1},Val{M2}},
 	::ProbabilityModels.Domains{S}
 ) where {S,M1,M2}
     K = sum(S)
@@ -212,19 +212,19 @@ sample_data( N, truth, missingness, missingvals = (Val{0}(),Val{0}()) ) = sample
             @inbounds for m in 1:$M1
                 Y₁union[perm[m]] = Base.missing
 	    	end
-    		Y₁ = convert(MissingDataArray{$M1,Bounds{-Inf,Inf}}, Y₁union)
+    		Y₁ = convert(MissingDataArray{$M1,Bounds(-Inf,Inf)}, Y₁union)
 		end : quote
 			Y₁ = Y₁sub
 		end)
 
-        Y₂sub = Array{Union{Missing,Float64}}(reshape(Y₂, (T * $K, N₂))[inds, :])
+        Y₂sub = reshape(Y₂, (T * $K, N₂))[inds, :]
 		$(M2 > 0 ? quote
             Y₂union = Array{Union{Missing,Float64}}(Y₂sub)
             perm = randperm(length(Y₂sub))
 			@inbounds for m in 1:$M2
                 Y₂union[perm[m]] = Base.missing
             end
-            Y₂ = convert(MissingDataArray{$M2,Bounds{-Inf,Inf}},Y₂union)
+            Y₂ = convert(MissingDataArray{$M2,Bounds(-Inf,Inf)},Y₂union)
 		end : quote
 		    Y₂ = Y₂sub
 		end)
@@ -256,7 +256,11 @@ truth = generate_true_parameters(domains, times, κ₀);
 
 data = sample_data((100,100), truth, availabledata); # Sample size of 100 for both treatment and placebo groups.
 
-mdata = sample_data((100,100), truth, availabledata); 
+mdata = sample_data((100,100), truth, availabledata, (Val(10),Val(9))); 
+
+
+Y1_mar_missing = vec(mdata.Y₁.data)[mdata.Y₁.inds];
+Y2_mar_missing = vec(mdata.Y₂.data)[mdata.Y₂.inds];
 
 ```
 The library [DistributionParameters.jl](https://github.com/chriselrod/DistributionParameters.jl) provides a variety of parameter types.

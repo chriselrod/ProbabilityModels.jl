@@ -386,14 +386,16 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
     end
                                                                 
     param_names = gensym(:param_names)
-    param_names_quote = quote            
+    param_names_quote = quote
         function ProbabilityModels.DistributionParameters.parameter_names($ℓ::$(model_name){$Nparam, $(variable_type_names...)}) where {$Nparam, $(variable_type_names...)}
 
             $param_names = String[]
             $([quote
                if $v <: Val
                # @show $v
-                   append!($param_names, ProbabilityModels.DistributionParameters.parameter_names(ProbabilityModels.extract_typeval($v), $(QuoteNode(v)))::Vector{String})
+               append!($param_names, ProbabilityModels.DistributionParameters.parameter_names(ProbabilityModels.extract_typeval($v), $(QuoteNode(v)))::Vector{String})
+               elseif $v <: ProbabilityModels.DistributionParameters.MissingDataArray
+               append!($param_names, ProbabilityModels.DistributionParameters.parameter_names($v, $(QuoteNode(v)))::Vector{String})
                end
                end for v ∈ variable_type_names]...)
             $param_names
@@ -412,7 +414,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
                if $v <: Val
                # @show $v
                    $Nconstrainedparam += ProbabilityModels.PaddedMatrices.type_length(ProbabilityModels.extract_typeval($v))
-               elseif $v <: MissingDataArray
+               elseif $v <: ProbabilityModels.DistributionParameters.MissingDataArray
                    $Nconstrainedparam += ProbabilityModels.PaddedMatrices.type_length($v)
                end
                end for v ∈ variable_type_names]...)
@@ -429,15 +431,24 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
     for i ∈ eachindex(variables)
         load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
 #        missingvar = Symbol("##missing##", variables[i])
-        load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), Expr(:., ℓ, variables[i])))
+        load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), :($ℓ.$(variables[i]))))
         push!(θq_body, quote
             # @show $(variable_type_names[i])
             if $(variable_type_names[i]) <: Val
                 # println($(variable_type_names[i]), "isa Val.")
 #                push!(model_parameters, $(QuoteNode(variables[i])))
-                ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, nothing, $logjac)
+                ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, nothing, $logjac, true)
                 push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
-            end
+            elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
+#                  push!(model_parameters, $(QuoteNode(variables[i])))
+#                 push!(model_parameters, $(QuoteNode(missingvar)))
+                  push!(first_pass.args, $load_incomplete_data)
+                  ProbabilityModels.DistributionParameters.load_missing_as_vector!(
+                      first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
+                      false, ProbabilityModels, nothing, $logjac, true
+                  )
+                  push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
+              end
         end)
         push!(θq_vec_body, quote
             # @show $(variable_type_names[i])
@@ -445,7 +456,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
                 # println($(variable_type_names[i]), "isa Val.")
 #                push!(model_parameters, $(QuoteNode(variables[i])))
                 ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false)
-                if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: DistributionParameters.ScalarParameter
+                if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: DistributionParameters.RealFloat
                     push!(first_pass.args, Expr(:call, :(ProbabilityModels.VectorizationBase.store!),
                                           Expr(:call, :pointer, Symbol("##stack_pointer##"), $(QuoteNode(T))), $(QuoteNode(variables[i]))))
                     push!(first_pass.args, Expr(:(+=), Symbol("##stack_pointer##"), Expr(:call, :sizeof, $(QuoteNode(T)) )))
@@ -455,7 +466,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
 #              push!(first_pass.args, :(@show reinterpret(Int, pointer($(Symbol("##stack_pointer##")),Float64) - origpointer)>>3 ))
 #                push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
               elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
-                  push!(model_parameters, $(QuoteNode(variables[i])))
+#                  push!(model_parameters, $(QuoteNode(variables[i])))
 #                 push!(model_parameters, $(QuoteNode(missingvar)))
                   push!(first_pass.args, $load_incomplete_data)
                   ProbabilityModels.DistributionParameters.load_missing_as_vector!(
@@ -509,7 +520,7 @@ function generate_generated_funcs_expressions(model_name, expr)
             # @show $(variables...)
             # @show $(variable_type_names...)
             $([quote
-                if isa(ProbabilityModels.types_to_vals($v), Val) || isa($v, MissingDataArray)
+                if isa(ProbabilityModels.types_to_vals($v), Val) || isa($v, ProbabilityModels.DistributionParameters.MissingDataArray)
                     # @show $v
                    $Nparam += ProbabilityModels.PaddedMatrices.param_type_length($v)
                elseif isa($v, AbstractArray{Union{Missing,T}} where T)
