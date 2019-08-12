@@ -433,15 +433,10 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
 #        missingvar = Symbol("##missing##", variables[i])
         load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), :($ℓ.$(variables[i]))))
         push!(θq_body, quote
-            # @show $(variable_type_names[i])
             if $(variable_type_names[i]) <: Val
-                # println($(variable_type_names[i]), "isa Val.")
-#                push!(model_parameters, $(QuoteNode(variables[i])))
                 ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, nothing, $logjac, true)
                 push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
             elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
-#                  push!(model_parameters, $(QuoteNode(variables[i])))
-#                 push!(model_parameters, $(QuoteNode(missingvar)))
                   push!(first_pass.args, $load_incomplete_data)
                   ProbabilityModels.DistributionParameters.load_missing_as_vector!(
                       first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
@@ -451,27 +446,18 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
               end
         end)
         push!(θq_vec_body, quote
-            # @show $(variable_type_names[i])
             if $(variable_type_names[i]) <: Val
-                # println($(variable_type_names[i]), "isa Val.")
-#                push!(model_parameters, $(QuoteNode(variables[i])))
-                ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false)
+                ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false, true)
                 if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: DistributionParameters.RealFloat
                     push!(first_pass.args, Expr(:call, :(ProbabilityModels.VectorizationBase.store!),
                                           Expr(:call, :pointer, Symbol("##stack_pointer##"), $(QuoteNode(T))), $(QuoteNode(variables[i]))))
                     push!(first_pass.args, Expr(:(+=), Symbol("##stack_pointer##"), Expr(:call, :sizeof, $(QuoteNode(T)) )))
-#                    push!(first_pass.args, :(VectorizationBase.store!(pointer(sp, $(QuoteNode(T))), $(QuoteNode(variables[i]))) ))
-#                    push!(first_pass.args, Expr(:(+=), Symbol("##stack_pointer##"), Expr(:call, :sizeof, $(QuoteNode(T)) )))
               end
-#              push!(first_pass.args, :(@show reinterpret(Int, pointer($(Symbol("##stack_pointer##")),Float64) - origpointer)>>3 ))
-#                push!(transformed_params.args, Expr(:(=), $(QuoteNode(variables[i])), $(QuoteNode(variables[i]))))
               elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
-#                  push!(model_parameters, $(QuoteNode(variables[i])))
-#                 push!(model_parameters, $(QuoteNode(missingvar)))
                   push!(first_pass.args, $load_incomplete_data)
                   ProbabilityModels.DistributionParameters.load_missing_as_vector!(
                       first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
-                      false, ProbabilityModels, Symbol("##stack_pointer##")
+                      false, ProbabilityModels, Symbol("##stack_pointer##"), false, true
                   )
             end
        end)
@@ -615,7 +601,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                   ProbabilityModels.DistributionParameters.load_parameter!(
                       first_pass.args, second_pass.args,
                       $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])),
-                      $return_partials, ProbabilityModels, Symbol("##stack_pointer##")
+                      $return_partials, ProbabilityModels, Symbol("##stack_pointer##"), true, false
                   )
                     # if !$return_partials
                     #     push!(first_pass.args, Expr(:call, :println, $(string(variables[i]))))
@@ -626,7 +612,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     push!(first_pass.args, $load_incomplete_data)
                   ProbabilityModels.DistributionParameters.load_parameter!(
                       first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
-                      $return_partials, ProbabilityModels, Symbol("##stack_pointer##")
+                      $return_partials, ProbabilityModels, Symbol("##stack_pointer##"), true, false
                   )
                 elseif $(variable_type_names[i]) <: Array
                     push!(first_pass.args, $load_data_ptr_array)
