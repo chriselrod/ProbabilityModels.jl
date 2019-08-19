@@ -19,8 +19,21 @@ import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED
 
 export @model, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
 
-abstract type AbstractProbabilityModel{D} <: LogDensityProblems.AbstractLogDensityProblem end
+function logdensity_and_gradient! end
+
+abstract type AbstractProbabilityModel{D} end# <: LogDensityProblems.AbstractLogDensityProblem end
 LogDensityProblems.dimension(::AbstractProbabilityModel{D}) where {D} = D
+LogDensityProblems.capabilities(::Type{<:AbstractProbabilityModel}) = LogDensityProblems.LogDensityOrder{1}()
+# `@inline` so that we can avoid the allocation for tuple creation
+# a
+@inline function LogDensityProblems.logdensity_and_gradient(sp::StackPointer, l::AbstractProbabilityModel{D}, theta) where {D}
+    sp, g = PaddedMatrices.mutable_similar(sp, theta)
+    sp, (logdensity_and_gradient!(g, l, theta, sp), g)
+end
+@inline function LogDensityProblems.logdensity_and_gradient(l::AbstractProbabilityModel{D}, theta) where {D}
+    g = PaddedMatrices.mutable_similar(theta)
+    logdensity_and_gradient!(g, l, theta), g
+end
 
 include("adjoints.jl")
 include("misc_functions.jl")
@@ -38,6 +51,7 @@ PaddedMatrices.@support_stack_pointer HierarchicalCentering
 PaddedMatrices.@support_stack_pointer ∂HierarchicalCentering
 function __init__()
     @eval const GLOBAL_ScalarVectorPCGs = threadrandinit()
+    # Note that 1 GiB == 2^30 == 1 << 30 bytesy
     # Allocates 0.5 GiB per thread for the stack by default.
     # Can be controlled via the environmental variable PROBABILITY_MODELS_STACK_SIZE
     @eval const STACK_POINTER = PaddedMatrices.StackPointer( Libc.malloc(Threads.nthreads() * nprocs() * get(ENV, "PROBABILITY_MODELS_STACK_SIZE", 1 << 29 ) ))
@@ -57,7 +71,7 @@ function realloc_stack(n::Integer)
     @warn """You must redefine all probability models; their stacks have been deallocated.
 Re-evaluating densities without first recompiling them will likely crash Julia!"""
     global STACK_POINTER = Libc.realloc(STACK_POINTER, n)
-    STACK_POINTER_REF = STACK_POINTER
+    STACK_POINTER_REF[] = STACK_POINTER
 end
     
 

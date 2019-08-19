@@ -21,6 +21,113 @@ end
 @inline Random.randn(pcg::ScalarVectorPCG, ::Type{T}) where {T <: VectorizationBase.AbstractSIMDVector} = randn(pcg.vector, T)
 @inline Random.randexp(pcg::ScalarVectorPCG, ::Type{T}) where {T <: VectorizationBase.AbstractSIMDVector} = randexp(pcg.vector, T)
 @inline Random.rng_native_52(pcg::ScalarVectorPCG) = Random.rng_native_52(pcg.scalar)
+@inline DynamicHMC.rand_bool(pcg::ScalarVectorPCG, prob::Float64) = rand(pcg.scalar, UInt64) <= typemax(UInt64) * prob
+@inline DynamicHMC.rand_bool(pcg::ScalarVectorPCG, prob::Float32) = rand(pcg.scalar, UInt32) <= typemax(UInt32) * prob
+function DynamicHMC.random_position(pcg::ScalarVectorPCG, N)
+    # if we really want to optimize it, we would calculate r in one pass instead of two.
+    r = rand(pcg.vector, N)
+    @. r = 4.0r - 2.0
+    r
+end
+
+function leapfrog(sp::StackPointer,
+        H::Hamiltonian{<: EuclideanKineticEnergy},
+        z::PhasePoint{DynamicHMC.EvaluatedLogDensity{T,S}}, ϵ
+) where {P,S,T <: AbstractFixedSizePaddedVector{P,S}}
+    @unpack ℓ, κ = H
+    @unpack p, Q = z
+    @argcheck isfinite(Q.ℓq) "Internal error: leapfrog called from non-finite log density"
+    sptr = pointer(sp, S)
+    # Variables that escape:
+    # p′, Q′ (q′, ∇ℓq)
+    pₘ = p + ϵ/2 * Q.∇ℓq
+    q′ = Q.q + ϵ * ∇kinetic_energy(κ, pₘ)
+    sp, Q′ = evaluate_ℓ(sp, H.ℓ, q′)
+    p′ = pₘ + ϵ/2 * Q′.∇ℓq
+    sp, PhasePoint(Q′, p′)
+end
+function move(sp::StackPointer, trajectory::TrajectoryNUTS, z, fwd)
+    @unpack H, ϵ = trajectory
+    leapfrog(sp, H, z, fwd ? ϵ : -ϵ)
+end
+function DynamicHMC.adjacent_tree(sp::StackPointer, rng, trajectory, z, i, depth, is_forward)
+    i′ = i + (is_forward ? 1 : -1)
+    if depth == 0
+        sp, z′ = move(sp, trajectory, z, is_forward)
+        ζωτ, v = leaf(trajectory, z′, false)
+        if ζωτ ≡ nothing
+            sp, DynamicHMC.InvalidTree(i′), v
+        else
+            sp, (ζωτ..., z′, i′), v
+        end
+    else
+        # “left” tree
+        sp, t₋, v₋ = adjacent_tree(sp, rng, trajectory, z, i, depth - 1, is_forward)
+        t₋ isa InvalidTree && return sp, t₋, v₋
+        ζ₋, ω₋, τ₋, z₋, i₋ = t₋
+
+        # “right” tree — visited information from left is kept even if invalid
+        sp, t₊, v₊ = adjacent_tree(sp, rng, trajectory, z₋, i₋, depth - 1, is_forward)
+        v = combine_visited_statistics(trajectory, v₋, v₊)
+        t₊ isa InvalidTree && return sp, t₊, v
+        ζ₊, ω₊, τ₊, z₊, i₊ = t₊
+
+        # turning invalidates
+        τ = combine_turn_statistics_in_direction(trajectory, τ₋, τ₊, is_forward)
+        is_turning(trajectory, τ) && return sp, InvalidTree(i′, i₊), v
+
+        # valid subtree, combine proposals
+        ζ, ω = combine_proposals_and_logweights(rng, trajectory, ζ₋, ζ₊, ω₋, ω₊, is_forward, false)
+        sp, (ζ, ω, τ, z₊, i₊), v
+    end
+end
+
+function DynamicHMC.sample_trajectory(sp::StackPointer, rng, trajectory, z, max_depth::Integer, directions::Directions)
+    @argcheck max_depth ≤ MAX_DIRECTIONS_DEPTH
+    (ζ, ω, τ), v = leaf(trajectory, z, true)
+    z₋ = z₊ = z
+    depth = 0
+    termination = REACHED_MAX_DEPTH
+    i₋ = i₊ = 0
+    while depth < max_depth
+        is_forward, directions = next_direction(directions)
+        t′, v′ = adjacent_tree(rng, trajectory, is_forward ? z₊ : z₋, is_forward ? i₊ : i₋,
+                               depth, is_forward)
+        v = combine_visited_statistics(trajectory, v, v′)
+
+        # invalid adjacent tree: stop
+        t′ isa InvalidTree && (termination = t′; break)
+
+        # extract information from adjacent tree
+        ζ′, ω′, τ′, z′, i′ = t′
+
+        # update edges and combine proposals
+        if is_forward
+            z₊, i₊ = z′, i′
+        else
+            z₋, i₋ = z′, i′
+        end
+
+        # tree has doubled successfully
+        ζ, ω = combine_proposals_and_logweights(rng, trajectory, ζ, ζ′, ω, ω′,
+                                                is_forward, true)
+        depth += 1
+
+        # when the combined tree is turning, stop
+        τ = combine_turn_statistics_in_direction(trajectory, τ, τ′, is_forward)
+        is_turning(trajectory, τ) && (termination = InvalidTree(i₋, i₊); break)
+    end
+    ζ, v, termination, depth
+end
+
+
+
+
+
+
+
+
+
 issmall(::PaddedMatrices.Static{S}) where {S} = 2S <= VectorizationBase.REGISTER_SIZE
 issmall(n::Number) = 2n <= VectorizationBase.REGISTER_SIZE
 @generated function Random.rand(pcg::ScalarVectorPCG, ::PaddedMatrices.Static{N}) where {N}
@@ -219,6 +326,18 @@ end
         PaddedMatrices.BLAS_dsymv!(κ.Minv.data, pₘ, q′, ϵ, 1.0)
         q′
     end
+end
+
+@generated function DynamicHMC.kinetic_energy(κ::GaussianKineticEnergy{<:Diagonal}, p::PaddedMatrices.AbstractConstantFixedSizePaddedVector{M,T,L}, q = nothing) where {M,T,L}
+    quote
+    out = zero($T)
+    M⁻¹ = κ.M⁻¹.diag
+    @vectorize $T for m in 1:$M
+        pm = p[m]
+        pm2pMinv = pm * pm + M⁻¹[m]
+        out += pm2pMinv
+    end
+    T(0.5)out
 end
 
 function DynamicHMC.leapfrog(H::DynamicHMC.Hamiltonian{Tℓ,Tκ}, z::DynamicHMC.PhasePoint, ϵ) where {Tℓ,N,T,A<:Union{<:PaddedMatrices.AbstractConstantFixedSizePaddedMatrix{N,N,T},<:Diagonal{T,<:ConstantFixedSizePaddedVector{N,T}}},Tκ <: DynamicHMC.GaussianKE{A}}
@@ -622,9 +741,8 @@ function LAPACK_dsyrk!(
 
 end
 
-@generated function sample_cov!(sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}, reg) where {Tf,P,L,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
-    sample_mat_stride, leftover_stride = divrem(sizeof(DynamicHMC.NUTS_Transition{Tv,Tf}), sizeof(Tf))
-    @assert leftover_stride == 0
+# using size(sample::AbstractArray,1) instead of length(sample::AbstractVector) to keep things general, in case we want a Matrix for multithreaded sampling?
+@generated function sample_cov!(sample::AbstractArray{Tv}, reg::Tf) where {Tf,P,L,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
     W = VectorizationBase.pick_vector_width(P, Tf)
     Wm1 = W - 1
     # rem = P & Wm1
@@ -632,7 +750,7 @@ end
     # L = (P + Wm1) & ~Wm1
     if P > 4W
         return quote
-            N = length(sample)
+            N = size(sample,1)
             x̄ = sample_sum(sample)
             # x̄ *= sqrt(1/N)
             Σ = MutableFixedSizePaddedMatrix{$P,$P,$Tf,$L,$(L*P)}(undef)
@@ -719,11 +837,11 @@ end
         ConstantFixedSizePaddedMatrix(Σ)
     end
 end
-@inline function DynamicHMC.sample_cov(sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}, reg) where {Tf,P,L,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
+@inline function regularized_sample_M⁻¹(sample::Vector{Tv}, reg) where {Tf,P,L,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
     sample_cov!(copy(sample), reg)
 end
 
-@generated function DynamicHMC.sample_cov(sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}) where {P,Tf,L,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,Tf,L,L}}
+@generated function sample_M⁻¹(::Type{Symmetric}, sample::Vector{Tv}) where {P,Tf,L,Tv <: PaddedMatrices.AbstractFixedSizePaddedVector{P,Tf,L,L}}
     sample_mat_stride, leftover_stride = divrem(sizeof(DynamicHMC.NUTS_Transition{Tv,Tf}), sizeof(Tf))
     @assert leftover_stride == 0
     W = VectorizationBase.pick_vector_width(P, Tf)
@@ -813,10 +931,10 @@ end
     end         
 end
 
-@generated function sample_diagcov(sample::Vector{DynamicHMC.NUTS_Transition{Tv,Tf}}, reg) where {Tf,L,P,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
+@generated function regularized_sample_M⁻¹(::Type{Diagonal}, sample::Vector{Tv}, reg::Tf) where {Tf,L,P,Tv <: PaddedMatrices.AbstractConstantFixedSizePaddedVector{P,Tf,L,L}}
     sample_mat_stride, leftover_stride = divrem(sizeof(DynamicHMC.NUTS_Transition{Tv,Tf}), sizeof(Tf))
     @assert leftover_stride == 0
-    W = VectorizationBase.pick_vector_width(P, Tf)
+    W, Wshift = VectorizationBase.pick_vector_width_shift(P, Tf)
     Wm1 = W - 1
     # rem = P & Wm1
     # @show P, W
@@ -839,8 +957,8 @@ end
             # m̃ = median!(x̄)
             # regmul = 1 - reg / N
             # regadd = m̃ * reg / N
-            regmul = Tf(N / (N+reg))
-            regadd = Tf(1e-3 * (reg / (N+reg)))
+            regmul = $Tf(N / (N+reg))
+            regadd = $Tf(1e-3 * (reg / (N+reg)))
 
             # x̄ already escaped the function in median!, so we'll store there and return it
             @fastmath @inbounds @simd ivdep for l ∈ 1:$L
