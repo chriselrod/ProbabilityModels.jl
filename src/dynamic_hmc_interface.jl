@@ -29,22 +29,39 @@ function DynamicHMC.random_position(pcg::ScalarVectorPCG, N)
     @. r = 4.0r - 2.0
     r
 end
+function DynamicHMC.random_position(sp::StackPointer, pcg::ScalarVectorPCG, ::Val{N}) where {N}
+    # if we really want to optimize it, we would calculate r in one pass instead of two.
+    sp, r = PtrVector{N,Float64}(sp)
+    rand!(pcg.vector, r)
+    @. r = 4.0r - 2.0
+    sp, r
+end
 
 function leapfrog(sp::StackPointer,
-        H::Hamiltonian{<: EuclideanKineticEnergy},
+        H::Hamiltonian{DynamicHMC.GaussianKineticEnergy{<:Diagonal}},
         z::PhasePoint{DynamicHMC.EvaluatedLogDensity{T,S}}, ϵ
-) where {P,S,T <: AbstractFixedSizePaddedVector{P,S}}
+) where {P,L,S,T <: AbstractFixedSizePaddedVector{P,S,L,L}}
     @unpack ℓ, κ = H
     @unpack p, Q = z
     @argcheck isfinite(Q.ℓq) "Internal error: leapfrog called from non-finite log density"
     sptr = pointer(sp, S)
+    B = L*sizeof(S)
+    pₘ = PtrVector{P,S,L,L}(sptr)
     # Variables that escape:
     # p′, Q′ (q′, ∇ℓq)
-    pₘ = p + ϵ/2 * Q.∇ℓq
-    q′ = Q.q + ϵ * ∇kinetic_energy(κ, pₘ)
-    sp, Q′ = evaluate_ℓ(sp, H.ℓ, q′)
-    p′ = pₘ + ϵ/2 * Q′.∇ℓq
-    sp, PhasePoint(Q′, p′)
+    ϵₕ = S(0.5) * ϵ
+    ∇ℓq = Q.∇ℓq
+    @. pₘ = p + ϵₕ * ∇ℓq
+#    ∇ke = ∇kinetic_energy(κ, pₘ)
+    M⁻¹ = κ.M⁻¹.diag
+    q = Q.q
+    q′ = PtrVector{P,S,L,L}(sptr + B) # should this be a new Vector?
+    @. q′ = q + ϵ * M⁻¹ * pₘ
+    sp, Q′ = evaluate_ℓ(sp + 2B, H.ℓ, q′)
+    ∇ℓq′ = Q′.∇ℓq
+    p′ = pₘ # PtrVector{P,S,L,L}(sptr + 3bytes)
+    @. p′ = pₘ + ϵₕ * ∇ℓq′
+    sp + 3B, PhasePoint(Q′, p′)
 end
 function move(sp::StackPointer, trajectory::TrajectoryNUTS, z, fwd)
     @unpack H, ϵ = trajectory
@@ -91,7 +108,7 @@ function DynamicHMC.sample_trajectory(sp::StackPointer, rng, trajectory, z, max_
     i₋ = i₊ = 0
     while depth < max_depth
         is_forward, directions = next_direction(directions)
-        t′, v′ = adjacent_tree(rng, trajectory, is_forward ? z₊ : z₋, is_forward ? i₊ : i₋,
+        sp, t′, v′ = adjacent_tree(sp, rng, trajectory, is_forward ? z₊ : z₋, is_forward ? i₊ : i₋,
                                depth, is_forward)
         v = combine_visited_statistics(trajectory, v, v′)
 
@@ -118,6 +135,34 @@ function DynamicHMC.sample_trajectory(sp::StackPointer, rng, trajectory, z, max_
         is_turning(trajectory, τ) && (termination = InvalidTree(i₋, i₊); break)
     end
     ζ, v, termination, depth
+end
+
+function NUTS_sample_tree(sp::StackPointer, rng, options::TreeOptionsNUTS, H::Hamiltonian,
+                          Q::EvaluatedLogDensity, ϵ;
+                          p = rand_p(rng, H.κ), directions = rand(rng, Directions))
+    @unpack max_depth, min_Δ, turn_statistic_configuration = options
+    z = PhasePoint(Q, p)
+    trajectory = TrajectoryNUTS(H, logdensity(H, z), ϵ, min_Δ, turn_statistic_configuration)
+    ζ, v, termination, depth = sample_trajectory(rng, trajectory, z, max_depth, directions)
+    statistics = TreeStatisticsNUTS(logdensity(H, ζ), depth, termination,
+                                    acceptance_rate(v), v.steps, directions)
+    ζ.Q, statistics
+end
+
+function mcmc(sampling_logdensity, N, warmup_state, sp = STACK_POINTER_REF[])
+    @unpack rng, ℓ, sampler_options, reporter = sampling_logdensity
+    @unpack Q, κ, ϵ = warmup_state
+    chain = Matrix{eltype(Q.q)}(undef, length(Q.q), N)
+#    chain = Vector{typeof(Q.q)}(undef, N)
+    tree_statistics = Vector{TreeStatisticsNUTS}(undef, N)
+    H = Hamiltonian(κ, ℓ)
+    mcmc_reporter = make_mcmc_reporter(reporter, N)
+    for i in 1:N
+        Q, tree_statistics[i] = NUTS_sample_tree(sp, rng, sampler_options, H, Q, ϵ)
+        chain[:,i] .= Q.q
+        report(mcmc_reporter, i)
+    end
+    (chain = chain, tree_statistics = tree_statistics)
 end
 
 
