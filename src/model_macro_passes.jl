@@ -35,6 +35,8 @@ function translate_sampling_statements(expr)
                 elseif @capture(x, y_ ~ f_( - α_ - X_ * β_, θ__))
                     return :(target = vadd(target, $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...))))
                 end
+            elseif @capture(x, y_ ~ Normal(X_ * β_, θ__))
+                return :(target = vadd(target, Normal($y, $X, $β, $(θ...))))
             end
             return :(target = vadd(target, $f($y, $(θ...))))
 #            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
