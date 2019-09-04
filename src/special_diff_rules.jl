@@ -298,5 +298,8 @@ function getindex_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
 end
 SPECIAL_DIFF_RULES[:getindex] = getindex_diff_rule!
 
+function rank_update_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    
 
-
+end
+SPECIAL_DIFF_RULES[:rank_update] = rank_update_diff_rule!
