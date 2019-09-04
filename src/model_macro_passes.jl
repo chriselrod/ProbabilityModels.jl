@@ -21,6 +21,7 @@ end
 function translate_sampling_statements(expr)
     prewalk(expr) do x
         if @capture(x, y_ ~ f_(θ__))
+            # @show f, y, θ
             if f ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
                 if @capture(x, y_ ~ f_(α_ + X_ * β_ , θ__))
                     return :(target = vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
@@ -35,8 +36,8 @@ function translate_sampling_statements(expr)
                 elseif @capture(x, y_ ~ f_( - α_ - X_ * β_, θ__))
                     return :(target = vadd(target, $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...))))
                 end
-            elseif @capture(x, y_ ~ Normal(X_ * β_, θ__))
-                return :(target = vadd(target, Normal($y, $X, $β, $(θ...))))
+            elseif @capture(x, y2_ ~ Normal(X_ * β_, θ2__))
+                return :(target = vadd(target, Normal($y2, $X, $β, $(θ2...))))
             end
             return :(target = vadd(target, $f($y, $(θ...))))
 #            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
@@ -542,7 +543,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     θq_value = quote
         @generated function ProbabilityModels.LogDensityProblems.logdensity(
                     $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
-                    $θ::AbstractVector{$T},
+                    $θ::PtrVector{$Nparam, $T, $Nparam, $Nparam},
                     $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = ProbabilityModels.STACK_POINTER
             ) where {$Nparam, $T, $(variable_type_names...)}
 
@@ -557,16 +558,16 @@ function generate_generated_funcs_expressions(model_name, expr)
 #    vgb = Symbol("##vgb##")
     θq_valuegradient = quote
         @generated function ProbabilityModels.logdensity_and_gradient!(
-                        $(Symbol("##∂θparameter##m"))::AbstractVector{$T},
+                        $(Symbol("##∂θparameter##m"))::PtrVector{$Nparam, $T, $Nparam, $Nparam},
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
-                        $θ::AbstractVector{$T},
+                        $θ::PtrVector{$Nparam, $T, $Nparam, $Nparam},
                         $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = ProbabilityModels.STACK_POINTER
                     ) where {$Nparam, $T, $(variable_type_names...)}
 
+            first_pass = quote end
             TLθ = $Nparam
             return_partials = true
             model_parameters = Symbol[]
-            first_pass = quote end
             second_pass = quote end
 
         end
@@ -678,7 +679,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     $(Symbol("##stack_pointer##")) = ProbabilityModels.STACK_POINTER
                     $first_pass
                     $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
-                    ProbabilityModels.LogDensityProblems.Value( isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf) )
+                    isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf)
                 end
             end
         end
@@ -705,7 +706,6 @@ function generate_generated_funcs_expressions(model_name, expr)
             final_quote
         end)
 
-        # push!(θq_body, display())
     end
 
     # Now, we would like to apply

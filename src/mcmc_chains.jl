@@ -2,12 +2,12 @@
 
 ### could make a direct method that doesn't allocate an extra wrap vector...
 function MCMCChains.Chains(
-    chains::Vector{DynamicHMC.NUTS_Transition{Vector{T},T}}, model::AbstractProbabilityModel{P}, args...
+    chains::Vector{Vector{T}}, model::AbstractProbabilityModel{P}, args...
 ) where {T,P}
     Chains([chains], model, args...)
 end
 function MCMCChains.Chains(
-    chains::Vector{Vector{DynamicHMC.NUTS_Transition{Vector{T},T}}}, model::AbstractProbabilityModel{P}, args...
+    chains::Vector{Vector{Vector{T}}}, model::AbstractProbabilityModel{P}, args...
 ) where {T,P}
 
     
@@ -21,7 +21,7 @@ function MCMCChains.Chains(
         chain = chains[c]
         for s ∈ 1:samples
             v = PaddedMatrices.DynamicPtrVector{T}(ptr + sizeof(T) * ((c-1)*D*samples + (s-1)*D), (D,), D)
-            DistributionParameters.constrain!(v, model, DynamicHMC.get_position(chain[s]))
+            DistributionParameters.constrain!(v, model, chain[s])
         end
     end
 

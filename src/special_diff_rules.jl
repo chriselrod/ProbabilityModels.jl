@@ -299,7 +299,48 @@ end
 SPECIAL_DIFF_RULES[:getindex] = getindex_diff_rule!
 
 function rank_update_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
-    
-
+    # This function will have to be updated once we add rank updates for things other than
+    # a cholesky decomposition.
+    Lsym, xsym = A[1], A[2]
+    track_L = Lsym ∈ tracked_vars
+    track_x = xsym ∈ tracked_vars
+    track = track_L | track_x
+    push!(tracked_vars, out)
+    push!(first_pass.args, Expr(:(=), out, :(StructuredMatrices.rank_update($(A...)))))
+    track || return
+    # That is because we differentiate by differentiating the expression:
+    # out = chol( L * L' + x * x' )
+    seedout = Symbol("###seed###", out)
+    args = Symbol[out, seedout]
+    seedL = Symbol("###seed###", Lsym)
+    seedLtemp = gensym(seedL)
+    if track_L
+        # push!(ret.args, seedLtemp)
+        push!(args, Lsym)
+    end
+    ∂L = Symbol("###adjoint###_##∂", out, "##∂", Lsym, "##")
+    seedx = Symbol("###seed###", xsym)
+    seedxtemp = gensym(seedx)
+    if track_x
+        # push!(ret.args, seedxtemp)
+        push!(args, xsym)
+    end
+    ∂x = Symbol("###adjoint###_##∂", out, "##∂", xsym, "##")
+    seedchol = gensym(:seedchol)
+    if track_L && track_x
+        ret = Expr(:tuple, seedLtemp, seedxtemp)
+    elseif track_L
+        ret = seedLtemp
+    else#if track_x
+        ret = seedxtemp
+    end
+    q = quote
+        #$seedchol = reverse_cholesky_grad($out, $seedout) # 
+        $ret = StructuredMatrices.∂rank_update($(args...))
+    end
+    track_L && push!(q.args, :($seedL = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedLtemp, $seedL)))
+    track_x && push!(q.args, :($seedx = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedxtemp, $seedx)))
+    pushfirst!(second_pass.args, q)
+    nothing
 end
 SPECIAL_DIFF_RULES[:rank_update] = rank_update_diff_rule!
