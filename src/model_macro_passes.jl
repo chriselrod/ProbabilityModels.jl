@@ -293,7 +293,10 @@ end
 # DiffRules.hasdiffrule(:Base, :exp, 1)
 # DiffRules.diffrule(:Base, :exp, :x)
 
-function constant_drop_pass!(first_pass, expr, tracked_vars)
+"""
+This pass is for when we aren't taking partial derivatives.
+"""
+function constant_drop_pass!(first_pass, expr, tracked_vars, verbose = false)
     for x ∈ expr.args
         if @capture(x, for i_ ∈ iter_ body_ end)
             throw("Loops not yet supported!")
@@ -309,9 +312,12 @@ function constant_drop_pass!(first_pass, expr, tracked_vars)
                         push!(track_tup.args, false)
                     end
                 end
+                if verbose
+                    printstring = "distribution $f (ret: $out): "
+                    push!(first_pass.args, :(println($printstring)))
+                end
                 push!(first_pass.args, :($out = ProbabilityModels.ProbabilityDistributions.$f($(A...), Val{$track_tup}())))
-#                printstring = "distribution $f (ret: $out): "
-#                push!(first_pass.args, :(println($printstring, $out)))
+                verbose && push!(first_pass.args, :(println($out)))
 #                push!(first_pass.args, :(@show $(A...)))
 #                push!(first_pass.args, :(@show $out))
             # elseif f ∈ keys(SPECIAL_DIFF_RULES)
@@ -635,7 +641,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                 # display(second_pass)
                 # println("\nRenamed assginemtns:\n")
                 # display(second_pass)
-                ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+                ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, $(verbose_models()))
                 expr_out = quote
                     target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
@@ -646,7 +652,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                 end
                 # VectorizationBase.REGISTER_SIZE is in bytes, so this is asking if 4 registers can hold the parameter vector
                 
-                if 2TLθ > ProbabilityModels.VectorizationBase.REGISTER_SIZE
+#                if 2TLθ > ProbabilityModels.VectorizationBase.REGISTER_SIZE
                     push!(expr_out.args, quote
                           $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
 #                          @show $(Symbol("##scalar_target##")) 
@@ -656,21 +662,21 @@ function generate_generated_funcs_expressions(model_name, expr)
                             end
                             $(Symbol("##scalar_target##"))
                     end)
-                else
-                    push!(expr_out.args, quote
-                          $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
-                          $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
-                          if !isfinite($(Symbol("##scalar_target##"))) || !all(isfinite, $(Symbol("##∂θparameter##mconst")))
-                            $(Symbol("##scalar_target##")) = typemin($T_sym)
-                          end
-                          $(Symbol("##scalar_target##"))
-                          #isfinite($(Symbol("##scalar_target##"))) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf)) : $T_sym(-Inf)#, $(Symbol("##∂θparameter##mconst"))
-                    end)
-                end
+#                else
+#                    push!(expr_out.args, quote
+#                          $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
+#                          $(Symbol("##∂θparameter##mconst")) = ProbabilityModels.PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
+#                          if !isfinite($(Symbol("##scalar_target##"))) || !all(isfinite, $(Symbol("##∂θparameter##mconst")))
+#                            $(Symbol("##scalar_target##")) = typemin($T_sym)
+#                          end
+#                          $(Symbol("##scalar_target##"))
+#                          #isfinite($(Symbol("##scalar_target##"))) ? (all(isfinite, $(Symbol("##∂θparameter##mconst"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf)) : $T_sym(-Inf)#, $(Symbol("##∂θparameter##mconst"))
+#                    end)
+#                end
             end
         else
             processing = quote
-                ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars)
+                ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars, $(verbose_models()))
 #                first_pass = PaddedMatrices.stack_pointer_pass(first_pass, $(QuoteNode(Symbol("##stack_pointer##"))))
                 expr_out = quote
                     target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
@@ -692,13 +698,13 @@ function generate_generated_funcs_expressions(model_name, expr)
             T_sym = $(QuoteNode(T))
             ℓ_sym = $(QuoteNode(ℓ))
             $processing
-            final_quote = quote
+              final_quote = quote
                 # @fastmath @inbounds begin
                     @inbounds begin
-                    $(PaddedMatrices.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##")))))
+                    $(PaddedMatrices.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),nothing,$(verbose_models())))
                 end
               end
-#              println(ProbabilityModels.MacroTools.striplines(final_quote))
+              $(verbose_models()) && println(ProbabilityModels.MacroTools.striplines(final_quote))
 ##              println(final_quote)
 ##              println(ProbabilityModels.MacroTools.prettify(final_quote))
 ##              println(tracked_vars)

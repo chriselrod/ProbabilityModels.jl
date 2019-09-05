@@ -95,6 +95,10 @@ end
     logdensity_and_gradient!(∇, l, θ), ∇
 end
 
+
+verbose_models() = false
+
+
 include("adjoints.jl")
 include("misc_functions.jl")
 include("special_diff_rules.jl")

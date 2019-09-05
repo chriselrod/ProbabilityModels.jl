@@ -72,10 +72,10 @@ function reverse_diff_ifelse!(first_pass, second_pass, tracked_vars, cond, condi
     nothing
 end
 
-function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, verbose = false)
     postwalk(expr) do x
         if @capture(x, out_ = f_(A__))
-            differentiate!(first_pass, second_pass, tracked_vars, out, f, A)
+            differentiate!(first_pass, second_pass, tracked_vars, out, f, A, verbose)
         elseif @capture(x, out_ = A_) && isa(A, Symbol)
             push!(first_pass.args, x)
             pushfirst!(second_pass.args, :( $(Symbol("###seed###", A)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $(Symbol("###seed###", A)) )) )
@@ -151,12 +151,12 @@ will be added.
 "first_pass" is an expression of the forward pass, while
 "second_pass" is an expression for the reverse pass.
 """
-function differentiate!(first_pass, second_pass, tracked_vars, out, f, A)
+function differentiate!(first_pass, second_pass, tracked_vars, out, f, A, verbose = false)
 #    @show f, typeof(f), A, (A .∈ Ref(tracked_vars))
 #    @show f, out, A, (A .∈ Ref(tracked_vars))
     arity = length(A)
     if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
-        ProbabilityDistributions.distribution_diff_rule!(:(ProbabilityDistributions), first_pass, second_pass, tracked_vars, out, A, f)
+        ProbabilityDistributions.distribution_diff_rule!(:(ProbabilityDistributions), first_pass, second_pass, tracked_vars, out, A, f, verbose)
     elseif haskey(SPECIAL_DIFF_RULES, f)
         SPECIAL_DIFF_RULES[f](first_pass, second_pass, tracked_vars, out, A)
 #    elseif f isa GlobalRef # TODO: Come up with better system that can use modules.
