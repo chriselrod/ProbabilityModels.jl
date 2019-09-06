@@ -249,6 +249,27 @@ function vec_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
 end
 SPECIAL_DIFF_RULES[:vec] = vec_diff_rule!
 
+function reshape_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
+    @assert length(A) == 2
+    a = A[1]
+    shape = A[2]
+#    println("A: $A")
+#    println("out: $out")
+#    println("A[1] ∈ tracked: $(A[1] ∈ tracked_vars)")
+    push!(first_pass.args, :($out = reshape($a,$shape)))
+    if a ∈ tracked_vars
+ #       ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
+        push!(tracked_vars, out)
+        seeda = Symbol("###seed###", a)
+        seedout = Symbol("###seed###", out)
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(reshape($seedout, ProbabilityModels.PaddedMatrices.maybe_static_size($a)), $seeda) ))
+#        push!(first_pass.args, :(($out,$∂) = ProbabilityModels.∂vec($a)))
+    end
+#    println("out ∈ tracked: $(out ∈ tracked_vars)")
+    nothing
+end
+SPECIAL_DIFF_RULES[:reshape] = reshape_diff_rule!
+
 
 function cov_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     # For now, the only method is autoregressive * longitudinal model

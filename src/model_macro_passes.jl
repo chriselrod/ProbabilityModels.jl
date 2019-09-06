@@ -20,9 +20,9 @@ end
 
 function translate_sampling_statements(expr)
     prewalk(expr) do x
-        if @capture(x, y_ ~ f_(θ__))
+        if @capture(x, y0_ ~ f0_(θ0__))
             # @show f, y, θ
-            if f ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
+            if f0 ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
                 if @capture(x, y_ ~ f_(α_ + X_ * β_ , θ__))
                     return :(target = vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
                 elseif @capture(x, y_ ~ f_(X_ * β_ + α_, θ__))
@@ -39,7 +39,7 @@ function translate_sampling_statements(expr)
             elseif @capture(x, y2_ ~ Normal(X_ * β_, θ2__))
                 return :(target = vadd(target, Normal($y2, $X, $β, $(θ2...))))
             end
-            return :(target = vadd(target, $f($y, $(θ...))))
+            return :(target = vadd(target, $f0($y0, $(θ0...))))
 #            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
@@ -600,12 +600,13 @@ function generate_generated_funcs_expressions(model_name, expr)
 
         for i ∈ eachindex(variables)
             load_data = Expr(:quote, :($(variables[i]) = $ℓ.$(variables[i])))
-              load_data_ptr_array = Expr(:quote,
+              load_data_dynamic_ptr_array = Expr(:quote,
                                          :($(variables[i]) = ProbabilityModels.PaddedMatrices.DynamicPtrArray(
                                              pointer( $ℓ.$(variables[i])),
                                              size($ℓ.$(variables[i])),
                                              size($ℓ.$(variables[i]),1)) )
                                          )
+            load_data_ptr_array = Expr(:quote, :($(variables[i]) = ProbabilityModels.PaddedMatrices.PtrArray( $ℓ.$(variables[i]) ) ) )
             missingvar = Symbol("##missing##", variables[i])
             load_incomplete_data = Expr(:quote, Expr(:(=), Symbol("##incomplete##", variables[i]), :($ℓ.$(variables[i]))))
             push!(θq_body, quote
@@ -628,7 +629,9 @@ function generate_generated_funcs_expressions(model_name, expr)
                       $return_partials, ProbabilityModels, Symbol("##stack_pointer##"), true, false
                   )
                 elseif $(variable_type_names[i]) <: Array
-                    push!(first_pass.args, $load_data_ptr_array)
+                  push!(first_pass.args, $load_data_dynamic_ptr_array)
+                elseif $(variable_type_names[i]) <: ProbabilityModels.PaddedMatrices.AbstractMutableFixedSizePaddedArray
+                  push!(first_pass.args, $load_data_ptr_array)
                 else
                     push!(first_pass.args, $load_data)
                 end
@@ -715,7 +718,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     end
 
     # Now, we would like to apply
-    struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, cvq, pn, clq, variables
+    PaddedMatrices.simplify_expr.((struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, cvq, pn, clq, variables))
 end
 
 macro model(model_name, expr)

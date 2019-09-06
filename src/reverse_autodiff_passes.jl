@@ -1,4 +1,4 @@
-const NOOPDIFFS = Set{Symbol}( ( :AutoregressiveMatrix, ))
+const NOOPDIFFS = Set{Symbol}( ( :AutoregressiveMatrix, :adjoint ))
 
 function noopdiff!(first_pass, second_pass, tracked_vars, out, f, A)
     track = false
@@ -163,7 +163,15 @@ function differentiate!(first_pass, second_pass, tracked_vars, out, f, A, verbos
 #        SPECIAL_DIFF_RULES[f.name](first_pass, second_pass, tracked_vars, out, A)
     elseif @capture(f, M_.F_) # TODO: Come up with better system that can use modules.
         F == :getproperty && return
-        SPECIAL_DIFF_RULES[F](first_pass, second_pass, tracked_vars, out, A)
+        if F ∈ keys(SPECIAL_DIFF_RULES)
+            SPECIAL_DIFF_RULES[F](first_pass, second_pass, tracked_vars, out, A)
+        elseif DiffRules.hasdiffrule(M, F, arity)
+            apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, DiffRules.diffrule(M, F, A...))
+        elseif F ∈ NOOPDIFFS            
+            noopdiff!(first_pass, second_pass, tracked_vars, out, f, A)
+        else
+            throw("Function $f with arguments $A is not yet supported.")
+        end
 #        tuple_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     elseif f ∈ NOOPDIFFS
         noopdiff!(first_pass, second_pass, tracked_vars, out, f, A)
