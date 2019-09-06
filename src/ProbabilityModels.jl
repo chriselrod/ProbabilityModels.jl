@@ -30,7 +30,7 @@ LogDensityProblems.capabilities(::Type{<:AbstractProbabilityModel}) = LogDensity
 # be inlined. There is only a single method (on PtrVectors) defined,
 # so that the functions will only have to be compiled once per AbstractProbabilityModel.
 @inline function LogDensityProblems.logdensity(l::AbstractProbabilityModel{D}, θ::AbstractVector{T}) where {D,T}
-    @boundscheck length(θ) > D || PaddedMatrices.ThrowBoundsError()
+    @boundscheck length(θ) == D || PaddedMatrices.ThrowBoundsError()
     GC.@preserve θ begin
         θptr = PtrVector{D,T,D,D}(pointer(θ))
         lp = LogDensityProblems.logdensity(l, θptr)
