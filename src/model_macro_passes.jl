@@ -1,4 +1,4 @@
-@nospecialize
+#@nospecialize
 
 function determine_variables(expr)
     variables = Set{Symbol}()
@@ -544,13 +544,14 @@ function generate_generated_funcs_expressions(model_name, expr)
     Tθ = gensym(:Tθ)
 
     constrain_quote, cvq, pn, clq  = load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T)
-
+    base_stack_pointer = ProbabilityModels.STACK_POINTER_REF[] + 9VectorizationBase.REGISTER_SIZE
+    stack_pointer_expr = Threads.nthreads() == 1 ? base_stack_pointer : :($base_stack_pointer + (Threads.threadid()-1)*$(LOCAL_STACK_SIZE[]))
     # we have to split these, because of dispatch ambiguity errors
     θq_value = quote
         @generated function ProbabilityModels.LogDensityProblems.logdensity(
                     $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                     $θ::PtrVector{$Nparam, $T, $Nparam, $Nparam},
-                    $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = ProbabilityModels.STACK_POINTER
+                    $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = $stack_pointer_expr
             ) where {$Nparam, $T, $(variable_type_names...)}
 
             TLθ = $Nparam
@@ -567,7 +568,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                         $(Symbol("##∂θparameter##m"))::PtrVector{$Nparam, $T, $Nparam, $Nparam},
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                         $θ::PtrVector{$Nparam, $T, $Nparam, $Nparam},
-                        $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = ProbabilityModels.STACK_POINTER
+                        $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = $stack_pointer_expr
                     ) where {$Nparam, $T, $(variable_type_names...)}
 
             first_pass = quote end
@@ -748,4 +749,4 @@ macro model(model_name, expr)
     end)
 end
 
-@specialize
+# @specialize

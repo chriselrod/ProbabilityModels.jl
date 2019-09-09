@@ -1,14 +1,15 @@
 module ProbabilityModels
 
-using   MacroTools, DiffRules,
+using   MacroTools, DiffRules, Parameters,
         VectorizationBase, SIMDPirates, LoopVectorization, SLEEFPirates,
         PaddedMatrices, StructuredMatrices,
         DistributionParameters, ProbabilityDistributions,
         DynamicHMC, LogDensityProblems,
-        Random, VectorizedRNG, RandomNumbers,
+        Random, VectorizedRNG,
         LinearAlgebra, Statistics, Distributed,
         MCMCChains
 
+using VectorizedRNG: AbstractPCG, PtrPCG
 using LoopVectorization: @vvectorize
 import MacroTools: postwalk, prewalk, @capture, @q
 import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,
@@ -108,20 +109,25 @@ include("mcmc_chains.jl")
 include("rng.jl")
 #include("dynamic_hmc_interface.jl")
 
+const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
 const STACK_POINTER_REF = Ref{StackPointer}()
+const LOCAL_STACK_SIZE = Ref{Int64}()
+const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
+
 
 PaddedMatrices.@support_stack_pointer ITPExpectedValue
 PaddedMatrices.@support_stack_pointer ∂ITPExpectedValue
 PaddedMatrices.@support_stack_pointer HierarchicalCentering
 PaddedMatrices.@support_stack_pointer ∂HierarchicalCentering
 function __init__()
-    @eval const GLOBAL_ScalarVectorPCGs = threadrandinit()
     # Note that 1 GiB == 2^30 == 1 << 30 bytesy
     # Allocates 0.5 GiB per thread for the stack by default.
     # Can be controlled via the environmental variable PROBABILITY_MODELS_STACK_SIZE
-    @eval const UNALIGNED_POINTER = Libc.malloc(Threads.nthreads() * nprocs() * get(ENV, "PROBABILITY_MODELS_STACK_SIZE", 1 << 29 ) )
-    @eval const STACK_POINTER = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER))
-    STACK_POINTER_REF[] = STACK_POINTER
+    LOCAL_STACK_SIZE[] = get(ENV, "PROBABILITY_MODELS_STACK_SIZE", 1 << 29 )
+    UNALIGNED_POINTER[] = Libc.malloc( Threads.nthreads() * nprocs() * LOCAL_STACK_SIZE[] )
+    STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
+    threadrandinit!(GLOBAL_PCGs)
+    # @eval const STACK_POINTER = STACK_POINTER_REF[]
     # @eval const GLOBAL_WORK_BUFFER = Vector{Vector{UInt8}}(Base.Threads.nthreads())
     # Threads.@threads for i ∈ eachindex(GLOBAL_WORK_BUFFER)
     #     GLOBAL_WORK_BUFFER[i] = Vector{UInt8}(0)
@@ -134,11 +140,11 @@ function __init__()
     end
 end
 function realloc_stack(n::Integer)
-    @warn """You must redefine all probability models; their stacks have been deallocated.
+    @warn """You must redefine all probability models. The stack pointers get dereferenced at compile time, and the stack has just been reallocated.
 Re-evaluating densities without first recompiling them will likely crash Julia!"""
-    global UNALIGNED_POINTER = Libc.realloc(UNALIGNED_POINTER, n)
-    global STACK_POINTER = VectorizationBase.align(UNALIGNED_POINTER)
-    STACK_POINTER_REF[] = STACK_POINTER
+    LOCAL_STACK_SIZE[] = n
+    UNALIGNED_POINTER[] = Libc.realloc(UNALIGNED_POINTER[], n)
+    STACK_POINTER_REF[] = VectorizationBase.align(UNALIGNED_POINTER[])
 end
     
 
