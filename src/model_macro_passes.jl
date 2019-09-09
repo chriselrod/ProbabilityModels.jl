@@ -686,7 +686,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
 #                    target = zero(ProbabilityModels.DistributionParameters.Target{$T_sym})
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
-                    $(Symbol("##stack_pointer##")) = ProbabilityModels.STACK_POINTER
+                    # $(Symbol("##stack_pointer##")) = ProbabilityModels.STACK_POINTER
                     $first_pass
                     $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
                     isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf)
