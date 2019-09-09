@@ -111,9 +111,8 @@ include("rng.jl")
 
 const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
 const STACK_POINTER_REF = Ref{StackPointer}()
-const LOCAL_STACK_SIZE = Ref{Int64}()
+const LOCAL_STACK_SIZE = Ref{Int}()
 const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
-
 
 PaddedMatrices.@support_stack_pointer ITPExpectedValue
 PaddedMatrices.@support_stack_pointer ∂ITPExpectedValue
@@ -123,7 +122,11 @@ function __init__()
     # Note that 1 GiB == 2^30 == 1 << 30 bytesy
     # Allocates 0.5 GiB per thread for the stack by default.
     # Can be controlled via the environmental variable PROBABILITY_MODELS_STACK_SIZE
-    LOCAL_STACK_SIZE[] = get(ENV, "PROBABILITY_MODELS_STACK_SIZE", 1 << 29 )
+    LOCAL_STACK_SIZE[] = if "PROBABILITY_MODELS_STACK_SIZE" ∈ keys(ENV)
+        parse(Int, ENV["PROBABILITY_MODELS_STACK_SIZE"])
+    else
+        1 << 29
+    end
     UNALIGNED_POINTER[] = Libc.malloc( Threads.nthreads() * nprocs() * LOCAL_STACK_SIZE[] )
     STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
     threadrandinit!(GLOBAL_PCGs)

@@ -404,9 +404,10 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
                # @show $v
                append!($param_names, ProbabilityModels.DistributionParameters.parameter_names(ProbabilityModels.extract_typeval($v), $(QuoteNode(v)))::Vector{String})
                elseif $v <: ProbabilityModels.DistributionParameters.MissingDataArray
-               append!($param_names, ProbabilityModels.DistributionParameters.parameter_names($v, $(QuoteNode(v)))::Vector{String})
+               #append!($param_names, ProbabilityModels.DistributionParameters.parameter_names($v, $(QuoteNode(v)))::Vector{String})
+               append!($param_names, ProbabilityModels.DistributionParameters.parameter_names($ℓ.$(variables[i]), $(QuoteNode(v)))::Vector{String})
                end
-               end for v ∈ variable_type_names]...)
+               end for (i,v) ∈ enumerate(variable_type_names)]...)
             $param_names
             
                                 

@@ -14,7 +14,7 @@ function DynamicHMC.random_position(sp::StackPointer, pcg::ScalarVectorPCG, ::Va
     sp, r
 end
 
-function leapfrog(sp::StackPointer,
+function DynamicHMC.leapfrog(sp::StackPointer,
         H::Hamiltonian{DynamicHMC.GaussianKineticEnergy{<:Diagonal}},
         z::PhasePoint{DynamicHMC.EvaluatedLogDensity{T,S}}, ϵ
 ) where {P,L,S,T <: AbstractFixedSizePaddedVector{P,S,L,L}}
@@ -34,21 +34,28 @@ function leapfrog(sp::StackPointer,
     q = Q.q
     q′ = PtrVector{P,S,L,L}(sptr + B) # should this be a new Vector?
     @. q′ = q + ϵ * M⁻¹ * pₘ
-    sp, Q′ = evaluate_ℓ(sp + 2B, H.ℓ, q′)
+    sp, Q′ = DynamicHMC.evaluate_ℓ(sp + 2B, H.ℓ, q′)
     ∇ℓq′ = Q′.∇ℓq
     p′ = pₘ # PtrVector{P,S,L,L}(sptr + 3bytes)
     @. p′ = pₘ + ϵₕ * ∇ℓq′
-    sp + 3B, PhasePoint(Q′, p′)
+    sp + 3B, DynamicHMC.PhasePoint(Q′, p′)
 end
-function move(sp::StackPointer, trajectory::TrajectoryNUTS, z, fwd)
+function DynamicHMC.move(sp::StackPointer, trajectory::DynamicHMC.TrajectoryNUTS, z, fwd)
     @unpack H, ϵ = trajectory
     leapfrog(sp, H, z, fwd ? ϵ : -ϵ)
 end
+
+"""
+Returns a tuple of
+dim, stride, element type
+"""
+describe_phase_point(z::PhasePoint{EvaluatedLogDensity{PtrVector{M,T,L,L}}}}) where {M,T,L} = M,L,T
+
 function DynamicHMC.adjacent_tree(sp::StackPointer, rng, trajectory, z, i, depth, is_forward)
     i′ = i + (is_forward ? 1 : -1)
     if depth == 0
-        sp, z′ = move(sp, trajectory, z, is_forward)
-        ζωτ, v = leaf(trajectory, z′, false)
+        sp, z′ = DynamicHMC.move(sp, trajectory, z, is_forward)
+        ζωτ, v = DynamicHMC.leaf(trajectory, z′, false)
         if ζωτ ≡ nothing
             sp, DynamicHMC.InvalidTree(i′), v
         else
@@ -56,41 +63,42 @@ function DynamicHMC.adjacent_tree(sp::StackPointer, rng, trajectory, z, i, depth
         end
     else
         # “left” tree
-        sp, t₋, v₋ = adjacent_tree(sp, rng, trajectory, z, i, depth - 1, is_forward)
+        sp, t₋, v₋ = DynamicHMC.adjacent_tree(sp, rng, trajectory, z, i, depth - 1, is_forward)
         t₋ isa InvalidTree && return sp, t₋, v₋
         ζ₋, ω₋, τ₋, z₋, i₋ = t₋
 
         # “right” tree — visited information from left is kept even if invalid
-        sp, t₊, v₊ = adjacent_tree(sp, rng, trajectory, z₋, i₋, depth - 1, is_forward)
-        v = combine_visited_statistics(trajectory, v₋, v₊)
-        t₊ isa InvalidTree && return sp, t₊, v
+        sp, t₊, v₊ = DynamicHMC.adjacent_tree(sp, rng, trajectory, z₋, i₋, depth - 1, is_forward)
+        v = DynamicHMC.combine_visited_statistics(trajectory, v₋, v₊)
+        t₊ isa DynamicHMC.InvalidTree && return sp, t₊, v
         ζ₊, ω₊, τ₊, z₊, i₊ = t₊
 
         # turning invalidates
-        τ = combine_turn_statistics_in_direction(trajectory, τ₋, τ₊, is_forward)
-        is_turning(trajectory, τ) && return sp, InvalidTree(i′, i₊), v
+        τ = DynamicHMC.combine_turn_statistics_in_direction(trajectory, τ₋, τ₊, is_forward)
+        is_turning(trajectory, τ) && return sp, DynamicHMC.InvalidTree(i′, i₊), v
 
         # valid subtree, combine proposals
-        ζ, ω = combine_proposals_and_logweights(rng, trajectory, ζ₋, ζ₊, ω₋, ω₊, is_forward, false)
+        ζ, ω = DynamicHMC.combine_proposals_and_logweights(rng, trajectory, ζ₋, ζ₊, ω₋, ω₊, is_forward, false)
         sp, (ζ, ω, τ, z₊, i₊), v
     end
 end
 
 function DynamicHMC.sample_trajectory(sp::StackPointer, rng, trajectory, z, max_depth::Integer, directions::Directions)
-    @argcheck max_depth ≤ MAX_DIRECTIONS_DEPTH
+    @argcheck max_depth ≤ DynamicHMC.MAX_DIRECTIONS_DEPTH
     (ζ, ω, τ), v = leaf(trajectory, z, true)
     z₋ = z₊ = z
     depth = 0
-    termination = REACHED_MAX_DEPTH
+    termination = DynamicHMC.REACHED_MAX_DEPTH
     i₋ = i₊ = 0
     while depth < max_depth
-        is_forward, directions = next_direction(directions)
-        sp, t′, v′ = adjacent_tree(sp, rng, trajectory, is_forward ? z₊ : z₋, is_forward ? i₊ : i₋,
-                               depth, is_forward)
-        v = combine_visited_statistics(trajectory, v, v′)
+        is_forward, directions = DynamicHMC.next_direction(directions)
+        sp, t′, v′ = DynamicHMC.adjacent_tree(
+            sp, rng, trajectory, is_forward ? z₊ : z₋, is_forward ? i₊ : i₋, depth, is_forward
+        )
+        v = DynamicHMC.combine_visited_statistics(trajectory, v, v′)
 
         # invalid adjacent tree: stop
-        t′ isa InvalidTree && (termination = t′; break)
+        t′ isa DynamicHMC.InvalidTree && (termination = t′; break)
 
         # extract information from adjacent tree
         ζ′, ω′, τ′, z′, i′ = t′
@@ -103,27 +111,37 @@ function DynamicHMC.sample_trajectory(sp::StackPointer, rng, trajectory, z, max_
         end
 
         # tree has doubled successfully
-        ζ, ω = combine_proposals_and_logweights(rng, trajectory, ζ, ζ′, ω, ω′,
-                                                is_forward, true)
+        ζ, ω = DynamicHMC.combine_proposals_and_logweights(
+            rng, trajectory, ζ, ζ′, ω, ω′, is_forward, true
+        )
         depth += 1
 
         # when the combined tree is turning, stop
-        τ = combine_turn_statistics_in_direction(trajectory, τ, τ′, is_forward)
-        is_turning(trajectory, τ) && (termination = InvalidTree(i₋, i₊); break)
+        τ = DynamicHMC.combine_turn_statistics_in_direction(trajectory, τ, τ′, is_forward)
+        DynamicHMC.is_turning(trajectory, τ) && (termination = DynamicHMC.InvalidTree(i₋, i₊); break)
     end
     ζ, v, termination, depth
 end
 
-function NUTS_sample_tree(sp::StackPointer, rng, options::TreeOptionsNUTS, H::Hamiltonian,
+function sample_tree(sp::StackPointer, rng, options::TreeOptionsNUTS, H::Hamiltonian,
                           Q::EvaluatedLogDensity, ϵ;
-                          p = rand_p(rng, H.κ), directions = rand(rng, Directions))
+                          p0 = nothing, directions = rand(rng, Directions))
     @unpack max_depth, min_Δ, turn_statistic_configuration = options
-    z = PhasePoint(Q, p)
-    trajectory = TrajectoryNUTS(H, logdensity(H, z), ϵ, min_Δ, turn_statistic_configuration)
-    ζ, v, termination, depth = sample_trajectory(rng, trajectory, z, max_depth, directions)
-    statistics = TreeStatisticsNUTS(logdensity(H, ζ), depth, termination,
-                                    acceptance_rate(v), v.steps, directions)
-    ζ.Q, statistics
+    if p0 === nothing
+        (sp, p) = rand_p(sp, rng, H.κ)
+    else
+        p = p0
+    end
+    z = DynamicHMC.PhasePoint(Q, p)
+    trajectory = DynamicHMC.TrajectoryNUTS(
+        H, logdensity(H, z), ϵ, min_Δ, turn_statistic_configuration
+    )
+    ζ, v, termination, depth = DynamicHMC.sample_trajectory(sp, rng, trajectory, z, max_depth, directions)
+    tree_statistics = DynamicHMC.TreeStatisticsNUTS(
+        logdensity(H, ζ), depth, termination,
+        DynamicHMC.acceptance_rate(v), v.steps, directions
+    )
+    ζ.Q, tree_statistics
 end
 
 @generated function pointer_vector_type(::AbstractProbabilityModel{D}, ::Type{T}) where {D,T}
@@ -141,27 +159,28 @@ function warmup(sampling_logdensity, tuning::TuningNUTS{M}, warmup_state) where 
     L = PaddedMatrices.full_length(PV)
     chain = Matrix{typeof(Q.q)}(undef, L, N)
     chain_ptr = pointer(chain)
-    tree_statistics = Vector{TreeStatisticsNUTS}(undef, N)
+    tree_statistics = Vector{DynamicHMC.TreeStatisticsNUTS}(undef, N)
     H = Hamiltonian(κ, ℓ)
-    ϵ_state = initial_adaptation_state(stepsize_adaptation, ϵ)
+    ϵ_state = DynamicHMC.initial_adaptation_state(stepsize_adaptation, ϵ)
     ϵs = Vector{Float64}(undef, N)
-    mcmc_reporter = make_mcmc_reporter(reporter, N; tuning = M ≡ Nothing ? "stepsize" :
+    mcmc_reporter = DynamicHMC.make_mcmc_reporter(reporter, N; tuning = M ≡ Nothing ? "stepsize" :
                                        "stepsize and $(M) metric")
     for i in 1:N
         ϵ = current_ϵ(ϵ_state)
         ϵs[i] = ϵ
-        Q, stats = sample_tree(rng, algorithm, H, Q, ϵ)
+        Q, stats = DynamicHMC.sample_tree(rng, algorithm, H, Q, ϵ)
         copyto!( PV( chain_ptr ), Q.q ); chain_ptr += L*sizeof(T)
         tree_statistics[i] = stats
-        ϵ_state = adapt_stepsize(stepsize_adaptation, ϵ_state, stats.acceptance_rate)
-        report(mcmc_reporter, i; ϵ = round(ϵ; sigdigits = REPORT_SIGDIGITS))
+        ϵ_state = DynamicHMC.adapt_stepsize(stepsize_adaptation, ϵ_state, stats.acceptance_rate)
+        DynamicHMC.report(mcmc_reporter, i; ϵ = round(ϵ; sigdigits = REPORT_SIGDIGITS))
     end
     if M ≢ Nothing
-        κ = GaussianKineticEnergy(regularize_M⁻¹(sample_M⁻¹(M, chain), λ))
-        report(mcmc_reporter, "adaptation finished", adapted_kinetic_energy = κ)
+        # κ = GaussianKineticEnergy(regularize_M⁻¹(sample_M⁻¹(M, chain), λ))
+        κ = DynamicHMC.GaussianKineticEnergy(regularize_sample_M⁻¹(M, chain, λ))
+        DynamicHMC.report(mcmc_reporter, "adaptation finished", adapted_kinetic_energy = κ)
     end
     ((chain = chain, tree_statistics = tree_statistics, ϵs = ϵs),
-     WarmupState(Q, κ, final_ϵ(ϵ_state)))
+    DynamicHMC.WarmupState(Q, κ, DynamicHMC.final_ϵ(ϵ_state)))
 end
 
 function mcmc(sampling_logdensity::AbstractProbabilityModel{D}, N, warmup_state, sp = STACK_POINTER_REF[]) where {D}
@@ -173,7 +192,7 @@ function mcmc(sampling_logdensity::AbstractProbabilityModel{D}, N, warmup_state,
     H = Hamiltonian(κ, ℓ)
     mcmc_reporter = make_mcmc_reporter(reporter, N)
     for i in 1:N
-        Q, tree_statistics[i] = NUTS_sample_tree(sp, rng, sampler_options, H, Q, ϵ)
+        Q, tree_statistics[i] = sample_tree(sp, rng, sampler_options, H, Q, ϵ)
         chain[:,i] .= Q.q
         report(mcmc_reporter, i)
     end
