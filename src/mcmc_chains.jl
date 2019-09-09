@@ -1,38 +1,5 @@
 
 
-### could make a direct method that doesn't allocate an extra wrap vector...
-function MCMCChains.Chains(
-    chains::Vector{Vector{T}}, model::AbstractProbabilityModel{P}, args...
-) where {T,P}
-    Chains([chains], model, args...)
-end
-function MCMCChains.Chains(
-    chains::Vector{Vector{Vector{T}}}, model::AbstractProbabilityModel{P}, args...
-) where {T,P}
-
-    
-    nchains = length(chains)
-    samples = length(first(chains))
-    D = DistributionParameters.constrained_length(model)
-
-    chainarray = PaddedMatrices.DynamicPtrArray{T,3}(pointer(STACK_POINTER_REF[],T), (D, samples, nchains), D)
-    ptr = pointer(chainarray)
-    for c ∈ 1:nchains
-        chain = chains[c]
-        for s ∈ 1:samples
-            v = PaddedMatrices.DynamicPtrVector{T}(ptr + sizeof(T) * ((c-1)*D*samples + (s-1)*D), (D,), D)
-            DistributionParameters.constrain!(v, model, chain[s])
-        end
-    end
-
-    Chains(
-        permutedims(chainarray, (2,1,3)),
-        DistributionParameters.parameter_names(model),
-        args...
-    )
-end
-
-### While not optimized, the outputs are at least not Any[]    
 function MCMCChains.ess(
     chn::MCMCChains.AbstractChains;
     showall::Bool=false,
@@ -110,7 +77,7 @@ function MCMCChains.ess(
 
 	# Find first odd positive integer where ρ[p][T+1] + ρ[p][T+2] is negative
     P = Vector{Vector{T}}(undef, length(param))
-    ess = Vector{T}(undef, length(param))
+    essv = Vector{T}(undef, length(param))
     for i in 1:length(param)
         big_P = 0.0
 	ρ_val = Float64.(ρ[i])
@@ -131,10 +98,45 @@ function MCMCChains.ess(
         # Create monotone.
         P_monotone = [min(P[i][t], P[i][1:t]...) for t in 1:length(P[i])]
 
-        ess[i] = (n*m) / (-1 + 2*sum(P_monotone))
+        essv[i] = (n*m) / (-1 + 2*sum(P_monotone))
 	end
 
-    df = MCMCChains.DataFrame(parameters = Symbol.(param), ess = ess, r_hat = Rhat)
+    df = MCMCChains.DataFrame(parameters = Symbol.(param), ess = essv, r_hat = Rhat)
     return MCMCChains.ChainDataFrame("ESS", df)#, digits=MCMCChains.digits)
 end
 
+
+
+### could make a direct method that doesn't allocate an extra wrap vector...
+function MCMCChains.Chains(
+    chains::Vector{Vector{T}}, model::AbstractProbabilityModel{P}, args...
+) where {T,P}
+    Chains([chains], model, args...)
+end
+function MCMCChains.Chains(
+    chains::Vector{Vector{Vector{T}}}, model::AbstractProbabilityModel{P}, args...
+) where {T,P}
+
+    
+    nchains = length(chains)
+    samples = length(first(chains))
+    D = DistributionParameters.constrained_length(model)
+
+    chainarray = PaddedMatrices.DynamicPtrArray{T,3}(pointer(STACK_POINTER_REF[],T), (D, samples, nchains), D)
+    ptr = pointer(chainarray)
+    for c ∈ 1:nchains
+        chain = chains[c]
+        for s ∈ 1:samples
+            v = PaddedMatrices.DynamicPtrVector{T}(ptr + sizeof(T) * ((c-1)*D*samples + (s-1)*D), (D,), D)
+            DistributionParameters.constrain!(v, model, chain[s])
+        end
+    end
+
+    Chains(
+        permutedims(chainarray, (2,1,3)),
+        DistributionParameters.parameter_names(model),
+        args...
+    )
+end
+
+### While not optimized, the outputs are at least not Any[]    

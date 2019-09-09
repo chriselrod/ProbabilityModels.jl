@@ -1,4 +1,4 @@
-
+@nospecialize
 
 function determine_variables(expr)
     variables = Set{Symbol}()
@@ -701,32 +701,42 @@ function generate_generated_funcs_expressions(model_name, expr)
             T_sym = $(QuoteNode(T))
             ℓ_sym = $(QuoteNode(ℓ))
             $processing
-              final_quote = quote
+            final_quote = PaddedMatrices.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),nothing,$(verbose_models())) |> ProbabilityModels.PaddedMatrices.simplify_expr
+              # final_quote = quote
                 # @fastmath @inbounds begin
-                    @inbounds begin
-                    $(PaddedMatrices.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),nothing,$(verbose_models())))
-                end
-              end
-              $(verbose_models()) && println(ProbabilityModels.MacroTools.striplines(final_quote))
+                    # @inbounds begin
+                    # $(PaddedMatrices.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),nothing,$(verbose_models())))
+                # end
+              # end
+              # final_quote = ProbabilityModels.PaddedMatrices.simplify_expr(final_quote)
+              $(verbose_models()) && println(final_quote)#ProbabilityModels.PaddedMatrices.simplify_expr(final_quote))
 ##              println(final_quote)
 ##              println(ProbabilityModels.MacroTools.prettify(final_quote))
 ##              println(tracked_vars)
 ##            display(ProbabilityModels.MacroTools.prettify(final_quote))
-            final_quote
+              quote
+              @inbounds begin
+              $final_quote
+              end
+              end
         end)
 
     end
 
     # Now, we would like to apply
     PaddedMatrices.simplify_expr.((struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, cvq, pn, clq, variables))
+    #struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, cvq, pn, clq, variables))
 end
 
 macro model(model_name, expr)
     # struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_q, dim_q, variables = generate_generated_funcs_expressions(model_name, expr)
     struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_q, cvq, pn, clq, variables = generate_generated_funcs_expressions(model_name, expr)
 #     display(ProbabilityModels.MacroTools.striplines(struct_kwarg_quote))
-#     display(ProbabilityModels.MacroTools.striplines(θq_value))
-#     display(ProbabilityModels.MacroTools.striplines(θq_valuegradient))
+    #     display(ProbabilityModels.MacroTools.striplines(θq_value))
+    # if verbose_models()
+        # println("\n\n\nValue Gradient Model:")
+        # display(ProbabilityModels.MacroTools.striplines(θq_valuegradient))
+    # end
     printstring = """
         Defined model: $model_name.
         Unknowns: $(variables[1])$([", " * string(variables[i]) for i ∈ 2:length(variables)]...).
@@ -737,3 +747,5 @@ macro model(model_name, expr)
         ProbabilityModels.Distributed.myid() == 1 && println($printstring)
     end)
 end
+
+@specialize
