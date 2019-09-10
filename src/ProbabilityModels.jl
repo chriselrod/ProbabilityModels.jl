@@ -149,6 +149,28 @@ Re-evaluating densities without first recompiling them will likely crash Julia!"
     UNALIGNED_POINTER[] = Libc.realloc(UNALIGNED_POINTER[], n)
     STACK_POINTER_REF[] = VectorizationBase.align(UNALIGNED_POINTER[])
 end
-    
+
+rel_error(x, y) = (x - y) / y
+function check_gradient(data, a = randn(LogDensityProblems.dimension(data)))
+    lp, g = LogDensityProblems.logdensity_and_gradient(data, a)
+    for i ∈ eachindex(a)
+        aᵢ = a[i]
+        step = cbrt(eps(aᵢ))
+        a[i] = aᵢ + step
+        lp_hi = LogDensityProblems.logdensity(data, a)
+        a[i] = aᵢ - step
+        lp_lo = LogDensityProblems.logdensity(data, a)
+        a[i] = aᵢ
+        fd = (lp_hi - lp_lo) / (2step)
+        ad = g[i]
+        relative_error = rel_error(ad, fd)
+        @show (i, ad, fd, relative_error)
+        if abs(relative_error) > 1e-5
+            fd_f = (lp_hi - lp) / step
+            fd_b = (lp - lp_lo) / step
+            @show rel_error.(ad, (fd_f, fd_b))
+        end
+    end
+end
 
 end # module

@@ -18,7 +18,7 @@ function threadrandinit!(pcg_vector::Vector{PtrPCG{P}}) where {P}
     nothing
 end
 
-function DynamicHMC.rand_p(sp::StackPointer, rng::VectorizedRNG.AbstractPCG, κ::GaussianKineticEnergy{T,S}, q = nothing) where {S <: Diagonal}
+function DynamicHMC.rand_p(sp::StackPointer, rng::VectorizedRNG.AbstractPCG, κ::GaussianKineticEnergy{S,S}, q = nothing) where {S <: Diagonal}
     (sp, rp) = similar(sp, W)
     sp, randn!(rng, rp, κ.W.diag)
 end

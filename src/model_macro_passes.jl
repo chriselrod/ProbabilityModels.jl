@@ -517,7 +517,6 @@ function generate_generated_funcs_expressions(model_name, expr)
             # @show $(variable_type_names...)
             $([quote
                 if isa(ProbabilityModels.types_to_vals($v), Val) || isa($v, ProbabilityModels.DistributionParameters.MissingDataArray)
-                    # @show $v
                    $Nparam += ProbabilityModels.PaddedMatrices.param_type_length($v)
                elseif isa($v, AbstractArray{Union{Missing,T}} where T)
                     $v = ProbabilityModels.DistributionParameters.maybe_missing($v)
