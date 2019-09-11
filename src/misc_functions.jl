@@ -76,7 +76,7 @@ function ∂ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMiss
 end
 =#
 
-function ITPExpectedValue_quote(M::Int, N::Int, T::DataType, track::NTuple{Nparamargs,Bool}, partial::Bool, sp = false, P = (M + Wm1) & ~Wm1) where {Nparamargs}
+function ITPExpectedValue_quote(M::Int, N::Int, @nospecialize ::Type{T}, @nospecialize track::NTuple{Nparamargs,Bool}, partial::Bool, sp = false, P = (M + Wm1) & ~Wm1) where {Nparamargs,T}
     if Nparamargs == 2
         (track_β, track_κ) = track
         track_θ = false
@@ -369,7 +369,7 @@ Base.eltype(::Domains{S}) where {S} = eltype(S)
 end
 Base.Array(::Domains{S}) where {S} = [S...]
 
-function HierarchicalCentering_quote(M::Int, T::DataType, μisvec::Bool, σisvec::Bool, (track_y, track_μ, track_σ), partial, sp::Bool)
+function HierarchicalCentering_quote(M::Int, @nospecialize T::DataType, μisvec::Bool, σisvec::Bool, (track_y, track_μ, track_σ), partial, sp::Bool)
     μsym = μisvec ? :(μ[m]) : :μ
     σsym = σisvec ? :(σ[m]) : :σ
     if !partial

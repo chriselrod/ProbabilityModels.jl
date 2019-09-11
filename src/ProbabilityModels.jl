@@ -147,7 +147,7 @@ function realloc_stack(n::Integer)
 Re-evaluating densities without first recompiling them will likely crash Julia!"""
     LOCAL_STACK_SIZE[] = n
     UNALIGNED_POINTER[] = Libc.realloc(UNALIGNED_POINTER[], n)
-    STACK_POINTER_REF[] = VectorizationBase.align(UNALIGNED_POINTER[])
+    STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
 end
 
 rel_error(x, y) = (x - y) / y
