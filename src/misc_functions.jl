@@ -76,7 +76,10 @@ function ∂ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMiss
 end
 =#
 
-function ITPExpectedValue_quote(M::Int, N::Int, @nospecialize ::Type{T}, @nospecialize track::NTuple{Nparamargs,Bool}, partial::Bool, sp = false, P = (M + Wm1) & ~Wm1) where {Nparamargs,T}
+function ITPExpectedValue_quote(
+    M::Int, N::Int, @nospecialize(T), @nospecialize(track::NTuple{<:Any,Bool}), partial::Bool, sp::Bool = false, P::Int = (M + Wm1) & ~Wm1
+)
+    Nparamargs = length(track)
     if Nparamargs == 2
         (track_β, track_κ) = track
         track_θ = false
@@ -369,7 +372,7 @@ Base.eltype(::Domains{S}) where {S} = eltype(S)
 end
 Base.Array(::Domains{S}) where {S} = [S...]
 
-function HierarchicalCentering_quote(M::Int, @nospecialize T::DataType, μisvec::Bool, σisvec::Bool, (track_y, track_μ, track_σ), partial, sp::Bool)
+function HierarchicalCentering_quote(M::Int, @nospecialize(T), μisvec::Bool, σisvec::Bool, (track_y, track_μ, track_σ)::NTuple{3,Bool}, partial, sp::Bool)
     μsym = μisvec ? :(μ[m]) : :μ
     σsym = σisvec ? :(σ[m]) : :σ
     if !partial
@@ -451,8 +454,9 @@ if σ is a scalar, will dot product on multiplication
 if σ is a vector, will do length(σ) mini dot products.
 """
 function HierarchicalCentering_quote(
-                M::Int, P::Int, T::DataType, μisvec::Bool, σisvec::Bool, S::NTuple{N,Int}, (track_y, track_μ, track_σ), sp::Bool
-            ) where {N}
+    M::Int, P::Int, @nospecialize(T), μisvec::Bool, σisvec::Bool, @nospecialize(S::NTuple{<:Any,Int}), (track_y, track_μ, track_σ)::NTuple{3,Bool}, sp::Bool
+)
+    N = length(S)
     @assert sum(S) == M
     @assert μisvec | σisvec
     q = quote end

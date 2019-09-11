@@ -113,12 +113,14 @@ const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
 const STACK_POINTER_REF = Ref{StackPointer}()
 const LOCAL_STACK_SIZE = Ref{Int}()
 const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
+const NTHREADS = Ref{Int}()
 
 PaddedMatrices.@support_stack_pointer ITPExpectedValue
 PaddedMatrices.@support_stack_pointer ∂ITPExpectedValue
 PaddedMatrices.@support_stack_pointer HierarchicalCentering
 PaddedMatrices.@support_stack_pointer ∂HierarchicalCentering
 function __init__()
+    NTHREADS[] = Threads.nthreads()
     # Note that 1 GiB == 2^30 == 1 << 30 bytesy
     # Allocates 0.5 GiB per thread for the stack by default.
     # Can be controlled via the environmental variable PROBABILITY_MODELS_STACK_SIZE
@@ -126,10 +128,10 @@ function __init__()
         parse(Int, ENV["PROBABILITY_MODELS_STACK_SIZE"])
     else
         1 << 29
-    end
-    UNALIGNED_POINTER[] = Libc.malloc( Threads.nthreads() * nprocs() * LOCAL_STACK_SIZE[] )
+    end + VectorizationBase.REGISTER_SIZE - 1 # so we have at least the indicated stack size after REGISTER_SIZE-alignment
+    UNALIGNED_POINTER[] = Libc.malloc( NTHREADS[] * LOCAL_STACK_SIZE[] )
     STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
-    threadrandinit!(GLOBAL_PCGs)
+    STACK_POINTER_REF[] = threadrandinit!(STACK_POINTER_REF[], GLOBAL_PCGs)
     # @eval const STACK_POINTER = STACK_POINTER_REF[]
     # @eval const GLOBAL_WORK_BUFFER = Vector{Vector{UInt8}}(Base.Threads.nthreads())
     # Threads.@threads for i ∈ eachindex(GLOBAL_WORK_BUFFER)
@@ -142,12 +144,13 @@ function __init__()
         push!(PaddedMatrices.STACK_POINTER_SUPPORTED_METHODS, m)
     end
 end
-function realloc_stack(n::Integer)
+function realloc_stack(new_local_stack_size::Integer)
     @warn """You must redefine all probability models. The stack pointers get dereferenced at compile time, and the stack has just been reallocated.
 Re-evaluating densities without first recompiling them will likely crash Julia!"""
-    LOCAL_STACK_SIZE[] = n
-    UNALIGNED_POINTER[] = Libc.realloc(UNALIGNED_POINTER[], n)
+    LOCAL_STACK_SIZE[] = new_local_stack_size
+    UNALIGNED_POINTER[] = Libc.realloc(UNALIGNED_POINTER[], new_local_stack_size + VectorizationBase.REGISTER_SIZE - 1)
     STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
+    STACK_POINTER_REF[] = threadrandinit!(STACK_POINTER_REF[], GLOBAL_PCGs)
 end
 
 rel_error(x, y) = (x - y) / y

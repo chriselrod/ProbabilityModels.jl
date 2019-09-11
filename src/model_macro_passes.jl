@@ -544,8 +544,8 @@ function generate_generated_funcs_expressions(model_name, expr)
     Tθ = gensym(:Tθ)
 
     constrain_quote, cvq, pn, clq  = load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T)
-    base_stack_pointer = ProbabilityModels.STACK_POINTER_REF[] + 9VectorizationBase.REGISTER_SIZE
-    stack_pointer_expr = Threads.nthreads() == 1 ? base_stack_pointer : :($base_stack_pointer + (Threads.threadid()-1)*$(LOCAL_STACK_SIZE[]))
+    base_stack_pointer = ProbabilityModels.STACK_POINTER_REF[]# + 9VectorizationBase.REGISTER_SIZE
+    stack_pointer_expr = NTHREADS[] == 1 ? base_stack_pointer : :($base_stack_pointer + (Threads.threadid()-1)*$(LOCAL_STACK_SIZE[]))
     # we have to split these, because of dispatch ambiguity errors
     θq_value = quote
         @generated function ProbabilityModels.LogDensityProblems.logdensity(
