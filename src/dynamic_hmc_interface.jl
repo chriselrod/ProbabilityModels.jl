@@ -7,22 +7,25 @@ function DynamicHMC.leapfrog(sp::StackPointer,
     @unpack p, Q = z
     @argcheck isfinite(Q.ℓq) "Internal error: leapfrog called from non-finite log density"
     sptr = pointer(sp, S)
-    B = L*sizeof(S)
+    B = L*sizeof(S) # counting on this being aligned.
     pₘ = PtrVector{P,S,L,L}(sptr)
+    q′ = PtrVector{P,S,L,L}(sptr + B) # should this be a new Vector?
+    M⁻¹ = κ.M⁻¹.diag
+    ∇ℓq = Q.∇ℓq
+    q = Q.q
+    @fastmath @inbounds @simd for l ∈ 1:L
+        pₘₗ = p[l] + ϵₕ * ∇ℓq[l]
+        pₘ[l] = pₘₗ
+        q′[l] = q[l] + ϵ * M⁻¹[l] * pₘₗ
+    end
     # Variables that escape:
     # p′, Q′ (q′, ∇ℓq)
-    ϵₕ = S(0.5) * ϵ
-    ∇ℓq = Q.∇ℓq
-    @. pₘ = p + ϵₕ * ∇ℓq
-#    ∇ke = ∇kinetic_energy(κ, pₘ)
-    M⁻¹ = κ.M⁻¹.diag
-    q = Q.q
-    q′ = PtrVector{P,S,L,L}(sptr + B) # should this be a new Vector?
-    @. q′ = q + ϵ * M⁻¹ * pₘ
     sp, Q′ = DynamicHMC.evaluate_ℓ(sp + 2B, H.ℓ, q′)
     ∇ℓq′ = Q′.∇ℓq
     p′ = pₘ # PtrVector{P,S,L,L}(sptr + 3bytes)
-    @. p′ = pₘ + ϵₕ * ∇ℓq′
+    @fastmath @inbounds @simd for l ∈ 1:L
+        p′[l] = pₘ[l] + ϵₕ * ∇ℓq′[l]
+    end
     sp + 3B, DynamicHMC.PhasePoint(Q′, p′)
 end
 function DynamicHMC.move(sp::StackPointer, trajectory::DynamicHMC.TrajectoryNUTS, z, fwd)
@@ -124,10 +127,11 @@ function sample_tree(sp::StackPointer, rng, options::TreeOptionsNUTS, H::Hamilto
     ζ, v, termination, depth = DynamicHMC.sample_trajectory(sp, rng, trajectory, z, max_depth, directions)
     tree_statistics = DynamicHMC.TreeStatisticsNUTS(
         logdensity(H, ζ), depth, termination,
-        DynamicHMC.acceptance_rate(v), v.steps, directions
+    DynamicHMC.acceptance_rate(v), v.steps, directions
     )
     ζ.Q, tree_statistics
 end
+
 
 @generated function pointer_vector_type(::AbstractProbabilityModel{D}, ::Type{T}) where {D,T}
     W = VectorizationBase.pick_vector_width(D, T)
@@ -160,7 +164,7 @@ function regularized_cov_block_quote(W::Int, T, reps_per_block::Int, stride::Int
     end
 end
 
-function DynamicHMC.kinetic_energy(κ::DynamicHMC.GaussianKineticEnergy{Diagonal{<:PtrVector{M,T}}, p::PtrVector{M,T}, q) where {M,T}
+function DynamicHMC.kinetic_energy(κ::DynamicHMC.GaussianKineticEnergy{Diagonal{T,<:PtrVector{M,T}}}, p::PtrVector{M,T}, q) where {M,T}
     M⁻¹ = κ.M⁻¹.diag
     ke = zero(T)
     @inbounds @simd for m ∈ 1:M
@@ -169,10 +173,12 @@ function DynamicHMC.kinetic_energy(κ::DynamicHMC.GaussianKineticEnergy{Diagonal
     ke
 end
 
-@generated function DynamicHMC.GaussianKineticEnergy(sp::StackPointer, sample::AbstractMatrix{T}, λ::T, ::Val{M}) where {M,T}
+@generated function DynamicHMC.GaussianKineticEnergy(sp::StackPointer, sample::AbstractMatrix{T}, λ::T, ::Val{D}) where {D,T}
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     Wm1 = W-1
+    M = (D + Wm1) & ~Wm1
     V = Vec{W,T}
+    # note that defining M as we did means Wrem == 0
     MdW = (M + Wm1) >> W
     Wrem = M & Wm1
     size_T = sizeof(T)
@@ -225,115 +231,37 @@ end
     q
 end
 
-function regularize_sample_M⁻¹(::Type{Diagonal}, chain, λ)
-    sample_mat_stride, leftover_stride = divrem(sizeof(DynamicHMC.NUTS_Transition{Tv,Tf}), sizeof(Tf))
-    @assert leftover_stride == 0
-    W, Wshift = VectorizationBase.pick_vector_width_shift(P, Tf)
-    Wm1 = W - 1
-    # rem = P & Wm1
-    # @show P, W
-    # L = (P + Wm1) & ~Wm1
-    if P > 4W
-        return quote
-            N = length(sample)
-            x̄ = sample_sum(sample)
-            Σ = MutableFixedSizePaddedVector{$P,$Tf,$L,$L}(undef)
-            columnwise_variance!(Σ, sample, x̄, 1/N)
 
-            # @show Σ
-            # Σ = Statistics.var(reshape(reinterpret(Float64, get_position.(sample)), ($L,N)), dims = 2)
-        #    @inbounds for l ∈ 1:$L
-        #        x̄[l] = Σ[l]
-        #    end
-            # return Diagonal(x̄)
-            # # @show x̄
-            # m̃ = quickmedian!(x̄)
-            # m̃ = median!(x̄)
-            # regmul = 1 - reg / N
-            # regadd = m̃ * reg / N
-            regmul = $Tf(N / (N+λ))
-            regadd = $Tf(1e-3 * (λ / (N+λ)))
-
-            # x̄ already escaped the function in median!, so we'll store there and return it
-            @fastmath @inbounds @simd ivdep for l ∈ 1:$L
-                x̄[l] = Σ[l] * regmul + regadd
-            end
-            # @show x̄
-            # @show Diagonal(d).diag
-            Diagonal(x̄)
-        end
-
-    end
-    quote
-        # $(Expr(:meta,:inline))
-        N = length(sample)
-        x̄ = sample_sum(sample)
-        nN⁻¹ = - 1 / N
-        Σ = MutableFixedSizePaddedMatrix{$P,$P,$Tf,$L,$(L*P)}(undef)
-        @inbounds for p ∈ 1:$P
-            x̄ₚ = nN⁻¹ * x̄[p]
-            s = $L * (p-1)
-            @vectorize $Tf for l ∈ 1:$L
-                Σ[l + s] = x̄[l] * x̄ₚ
-            end
-        end
-        # @inbounds for i ∈ 1:$(L*P)
-        #     out[i] = zero(T)
-        # end
-        # ConstantFixedSizePaddedMatrix(out)
-        $(sample_crossprod_quote(:N,Tf,P,L,sample_mat_stride))
-        m = MutableFixedSizePaddedVector{$P,$Tf,$L,$L}(undef)
-        @inbounds for p ∈ 1:$P
-            m[p] = Σ[p,p]
-        end
-        off_diag_reg = (1 - reg / N) / (N - 1)
-        diag_reg = median!(m) * reg / (N - reg)
-        # diag_reg = quickmedian!(m) * reg / (N - 1)
-        # off_diag_reg = (1 - reg) / (N - 1)
-        @vectorize $Tf for i ∈ 1:$(L*P)
-            Σ[i] = Σ[i] * off_diag_reg
-        end
-        @inbounds for p ∈ 1:$P
-            Σ[p,p] += diag_reg
-        end
-        # @inbounds for i ∈ 1:$(L*P)
-        #     out[i] *= (1/(N-1))
-        # end
-        # out
-        ConstantFixedSizePaddedMatrix(Σ)
-    end    
-
-end
-
-function warmup(sampling_logdensity, tuning::TuningNUTS{M}, warmup_state) where {M}
+function warmup(
+    sp::StackPointer,
+    sampling_logdensity::DynamicHMC.SamplingLogDensity{<:VectorizedRNG.AbstractPCG, <:ProbabilityModels.AbstractProbabilityModel{D}},
+    tuning::DynamicHMC.TuningNUTS{Diagonal},
+    warmup_state
+) where {D}
     @unpack rng, ℓ, algorithm, reporter = sampling_logdensity
     @unpack Q, κ, ϵ = warmup_state
     @unpack N, stepsize_adaptation, λ = tuning
-    
-    PV = pointer_vector_type(ℓ, T)
-    L = PaddedMatrices.full_length(PV)
+    L = VectorizationBase.align(D, T)
     chain = Matrix{typeof(Q.q)}(undef, L, N)
     chain_ptr = pointer(chain)
     tree_statistics = Vector{DynamicHMC.TreeStatisticsNUTS}(undef, N)
     H = Hamiltonian(κ, ℓ)
     ϵ_state = DynamicHMC.initial_adaptation_state(stepsize_adaptation, ϵ)
     ϵs = Vector{Float64}(undef, N)
-    mcmc_reporter = DynamicHMC.make_mcmc_reporter(reporter, N; tuning = M ≡ Nothing ? "stepsize" :
-                                       "stepsize and $(M) metric")
+    mcmc_reporter = DynamicHMC.make_mcmc_reporter(reporter, N; tuning = "stepsize and Diagonal{T,PtrVector{}} metric")
     for i in 1:N
         ϵ = current_ϵ(ϵ_state)
         ϵs[i] = ϵ
         Q, stats = DynamicHMC.sample_tree(rng, algorithm, H, Q, ϵ)
-        copyto!( PV( chain_ptr ), Q.q ); chain_ptr += L*sizeof(T)
+        copyto!( PtrVector{D,T}( chain_ptr ), Q.q ); chain_ptr += L*sizeof(T)
         tree_statistics[i] = stats
         ϵ_state = DynamicHMC.adapt_stepsize(stepsize_adaptation, ϵ_state, stats.acceptance_rate)
         DynamicHMC.report(mcmc_reporter, i; ϵ = round(ϵ; sigdigits = REPORT_SIGDIGITS))
     end
-    if M ≢ Nothing
-        # κ = GaussianKineticEnergy(regularize_M⁻¹(sample_M⁻¹(M, chain), λ))
-        κ = DynamicHMC.GaussianKineticEnergy(regularize_sample_M⁻¹(M, chain, λ))
-        DynamicHMC.report(mcmc_reporter, "adaptation finished", adapted_kinetic_energy = κ)
-    end
+    # κ = GaussianKineticEnergy(regularize_M⁻¹(sample_M⁻¹(M, chain), λ))
+    sp, κ = DynamicHMC.GaussianKineticEnergy(sp, chain, λ, Val{D}())
+    DynamicHMC.report(mcmc_reporter, "adaptation finished", adapted_kinetic_energy = κ)
+    
     ((chain = chain, tree_statistics = tree_statistics, ϵs = ϵs),
     DynamicHMC.WarmupState(Q, κ, DynamicHMC.final_ϵ(ϵ_state)))
 end
