@@ -1,83 +1,100 @@
 
-#=
-struct StructuredMissingness{S,K,nT,P,PL,T,nTL}
-    incr::MutableFixedSizePaddedVector{P,T,PL,PL}
-    coef::MutableFixedSizePaddedVector{P,T,PL,PL}
-    missingness::Vector{Bool}
-    # missingness::BitVector
-    times::ConstantFixedSizePaddedVector{nT,T,nTL,nTL}
-end
-
-
-
-function ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMissingness{S,K,nT}) where {S,T,K,nT}
-    incr = sm.incr
-    coef = sm.coef
-    ind_kt = 0
-    ind = 0
-    missingness = sm.missingness
-    times = sm.times
-    for k ∈ 1:K
-        numerator = expm1(-κ[k] * times[nT])
-        for t ∈ 1:nT-1
-            ind_kt += 1
-            missingness[ind_kt] || continue
-            ind += 1
-            coef[ind] = numerator / expm1(-κ[k] * times[t])
-            incr[ind] = θ[k]
-        end
-        ind_kt += 1
-        missingness[ind_kt] || continue
-        ind += 1
-        coef[ind] = one(T)
-        incr[ind] = θ[k]
+# a is emax, b is ed50, c is dose
+function emax_quote(M::Union{Int,Symbol}, T, isvec::NTuple{3,Bool}, track::NTuple{3,Bool}, sp::Bool)# partial::Bool, sp::Bool)
+    #    f(a,b,c) =  a*c   / (b + c)
+    # ∂f∂a(a,b,c) =    c   / (b + c)
+    # ∂f∂b(a,b,c) = -a*c   / (b + c)^2
+    # ∂f∂c(a,b,c) =  a * b / (b + c)^2
+    W, Wshift = VectorizationBase.pick_vector_width_shift(T)
+    tracka, trackb, trackc = track
+    aisvec, bisvec, cisvec = isvec
+    need_loop = aisvec | bisvec | cisvec
+    partial = tracka | trackb | trackc
+    aexpr = aisvec ? :(a[i]) : :a
+    bexpr = bisvec ? :(b[i]) : :b
+    cexpr = cisvec ? :(c[i]) : :c
+    head = quote end
+    body = quote
+        d = one($T) / ($bexpr + $cexpr)
+        ∂f∂a = $cexpr * d
+        f = $aexpr * ∂f∂a
     end
-    δ = Y.δ
-    data = Y.data
-    PaddedMatrices.muladd!(δ, coef, data, incr)
-    δ
-end
-function ∂ITPModel(Y::MultivariateNormalVariate{T}, θ, κ, sm::StructuredMissingness{S,K,nT}, ::Val{(true,true)}) where {S,T,K,nT}
-    incr = sm.incr
-    coef = sm.coef
-    ind_kt = 0
-    ind = 0
-    missingness = sm.missingness
-    times = sm.times
-    ∂κ = sm.∂κ
-    for k ∈ 1:K
-        d = times[nT]
-        ekd = exp(-κ[k] * d)
-        numerator = one(T) - ekd
-        ekd *= d
-        for t ∈ 1:nT-1
-            ind_kt += 1
-            missingness[ind_kt] || continue
-            ind += 1
-            tt = times[t]
-            ekt = exp(-κ[k] * tt)
-            denominator = 1 / (one(T) - ekt)
-            coeft = numerator * denominator
-            coef[ind] = coeft
-            incr[ind] = θ[k]
-            @fastmath ∂κ[ind] = ekd * denominator - coeft * denominator * tt * ekt
+    return_f = need_loop ? :vf : :f
+    return_expr = partial ? Expr(:tuple, return_f) : return_f
+    if partial
+        if trackb 
+            if need_loop && !bisvec
+                push!(body.args, :(∂f∂b += -d*f))
+            else
+                push!(body.args, :(∂f∂b = -d*f))
+            end
         end
-        ind_kt += 1
-        missingness[ind_kt] || continue
-        ind += 1
-        coef[ind] = one(T)
-        ∂κ[ind] = zero(T)
-        incr[ind] = θ[k]
+        if trackc
+            if need_loop && !cisvec
+                push!(body.args, :(∂f∂c += a*b*d*d)))
+            else
+                push!(body.args, :(∂f∂c = a*b*d*d))
+            end
+        end
+        for (sym, isvec, track) in ( (:∂f∂a,aisvec,tracka),(:∂f∂b,bisvec,trackb),(:∂f∂c,cisvec,trackc) )
+            track || continue
+            if need_loop && !isvec
+                push!(head.args, :($sym = zero($T)))
+            elseif isvec
+                vsym = Symbol(:v, sym)
+                push!(head.args, PaddedMatrices.pointer_vector_expr( vsym, M, T, sp, :sptr ) )
+                push!(body.args, :($vsym[i] = $sym))
+                push!(return_expr.args, vsym)
+            end
+            isvec || push!(return_expr.args, sym)
+        end
     end
-    δ = Y.δ
-    data = Y.data
-    PaddedMatrices.muladd!(δ, coef, data, incr)
-    δ, Reducer{S}(), ReducerWrapper{S}(∂κ)
+    body = macroexpand(Base, :(@fastmath $body))
+    final_ret = sp ? :((sptr, $return_expr)) : return_expr)
+    if need_loop
+        quote
+            $head
+            @inbounds @simd for i in 1:$M
+                $body
+            end
+            $final_ret
+        end
+    else
+        quote
+            $head
+            $body
+            $final_ret
+        end
+    end
 end
-=#
+
+@generated function emax(
+    a::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
+    b::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
+    c::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
+    ::Val{track} = Val{(false,false,false)}()
+) where {M, T, L, track}
+    isvec = (
+        a != T, b != T, c != T
+    )
+    emax_quote(L, T, isvec, track, false)
+end
+@generated function emax(
+    sptr::StackPointer,
+    a::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
+    b::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
+    c::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
+    ::Val{track} = Val{(false,false,false)}()
+) where {M, T, L, track}
+    isvec = (
+        a != T, b != T, c != T
+    )
+    emax_quote(L, T, isvec, track, true)
+end
+
 
 function ITPExpectedValue_quote(
-    M::Int, N::Int, @nospecialize(T), @nospecialize(track::NTuple{<:Any,Bool}), partial::Bool, sp::Bool = false, P::Int = (M + Wm1) & ~Wm1
+    M::Int, N::Int, T, @nospecialize(track::NTuple{<:Any,Bool}), partial::Bool, sp::Bool = false, P::Int = (M + Wm1) & ~Wm1
 )
     Nparamargs = length(track)
     if Nparamargs == 2

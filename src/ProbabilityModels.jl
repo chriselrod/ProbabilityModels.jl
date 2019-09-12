@@ -115,6 +115,7 @@ const LOCAL_STACK_SIZE = Ref{Int}()
 const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
 const NTHREADS = Ref{Int}()
 
+PaddedMatrices.@support_stack_pointer emax
 PaddedMatrices.@support_stack_pointer ITPExpectedValue
 PaddedMatrices.@support_stack_pointer ∂ITPExpectedValue
 PaddedMatrices.@support_stack_pointer HierarchicalCentering
@@ -140,7 +141,7 @@ function __init__()
 #    for m ∈ (:ITPExpectedValue, :∂ITPExpectedValue)
 #        push!(PaddedMatrices.STACK_POINTER_SUPPORTED_METHODS, m)
 #    end
-    for m ∈ (:ITPExpectedValue, :∂ITPExpectedValue, :HierarchicalCentering, :∂HierarchicalCentering)
+    for m ∈ (:emax, :ITPExpectedValue, :∂ITPExpectedValue, :HierarchicalCentering, :∂HierarchicalCentering)
         push!(PaddedMatrices.STACK_POINTER_SUPPORTED_METHODS, m)
     end
 end
