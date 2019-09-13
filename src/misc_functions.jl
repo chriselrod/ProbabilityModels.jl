@@ -1,6 +1,6 @@
 
 # a is emax, b is ed50, c is dose
-function emax_quote(M::Union{Int,Symbol}, T, isvec::NTuple{3,Bool}, track::NTuple{3,Bool}, sp::Bool)# partial::Bool, sp::Bool)
+function emax_dose_response_quote(M::Union{Int,Symbol}, T, isvec::NTuple{3,Bool}, track::NTuple{3,Bool}, sp::Bool)# partial::Bool, sp::Bool)
     #    f(a,b,c) =  a*c   / (b + c)
     # ∂f∂a(a,b,c) =    c   / (b + c)
     # ∂f∂b(a,b,c) = -a*c   / (b + c)^2
@@ -68,28 +68,52 @@ function emax_quote(M::Union{Int,Symbol}, T, isvec::NTuple{3,Bool}, track::NTupl
     end
 end
 
-@generated function emax(
-    a::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
-    b::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
-    c::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
+@generated function emax_dose_response(
+    a::Union{T,<:AbstractVector{T}},
+    b::Union{T,<:AbstractVector{T}},
+    c::Union{T,<:AbstractVector{T}},
     ::Val{track} = Val{(false,false,false)}()
-) where {M, T, L, track}
-    isvec = (
-        a != T, b != T, c != T
-    )
-    emax_quote(L, T, isvec, track, false)
+) where {T, track}
+    (L,isvec) = if a <: AbstractFixedSizePaddedVector
+        full_length(a), true
+    elseif b <: AbstractFixedSizePaddedVector
+        full_length(b), true
+    elseif c <: AbstractFixedSizePaddedVector
+        full_length(c), true
+    elseif a != T
+        :(length(a)), true
+    elseif b != T
+        :(length(b)), true
+    elseif c != T
+        :(length(c)), true
+    else
+        1, false
+    end
+    emax_dose_response_quote(L, T, isvec, track, false)
 end
-@generated function emax(
+@generated function emax_dose_response(
     sptr::StackPointer,
-    a::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
-    b::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
-    c::Union{T,<:AbstractFixedSizePaddedVector{M,T,L,L}},
+    a::Union{T,<:AbstractVector{M,T,L,L}},
+    b::Union{T,<:AbstractVector{M,T,L,L}},
+    c::Union{T,<:AbstractVector{M,T,L,L}},
     ::Val{track} = Val{(false,false,false)}()
 ) where {M, T, L, track}
-    isvec = (
-        a != T, b != T, c != T
-    )
-    emax_quote(L, T, isvec, track, true)
+    (L,isvec) = if a <: AbstractFixedSizePaddedVector
+        full_length(a), true
+    elseif b <: AbstractFixedSizePaddedVector
+        full_length(b), true
+    elseif c <: AbstractFixedSizePaddedVector
+        full_length(c), true
+    elseif a != T
+        :(length(a)), true
+    elseif b != T
+        :(length(b)), true
+    elseif c != T
+        :(length(c)), true
+    else
+        1, false
+    end
+    emax_dose_response_quote(L, T, isvec, track, true)
 end
 
 
