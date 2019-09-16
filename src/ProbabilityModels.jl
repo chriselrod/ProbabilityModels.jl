@@ -10,6 +10,7 @@ using   MacroTools, DiffRules, Parameters,
 
 using VectorizedRNG: AbstractPCG, PtrPCG
 using LoopVectorization: @vvectorize
+using FunctionWrappers: FunctionWrapper
 import MacroTools: postwalk, prewalk, @capture, @q
 import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,
     RESERVED_MULTIPLY_SEED_RESERVED, RESERVED_NMULTIPLY_SEED_RESERVED,

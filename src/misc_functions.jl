@@ -758,3 +758,7 @@ end
 function Base.:*(A::AbstractMutableFixedSizePaddedArray, ::ReshapeAdjoint{S}) where S
     reshape(A, Val{S}())
 end
+
+
+# strip_typeof(x::Symbol) = Symbol(String(x)[8:end-1])
+

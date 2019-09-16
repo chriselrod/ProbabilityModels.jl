@@ -6,43 +6,42 @@
 # DiffRules.diffrule(:Base, :^, :x, :y)
 
 
-const SPECIAL_DIFF_RULES = Dict{Symbol,Function}()
+const SPECIAL_DIFF_RULE = FunctionWrapper{Cvoid,Tuple{Expr,Expr,Set{Symbol},Symbol,Vector{Symbol}}}
+const SPECIAL_DIFF_RULES = Dict{Symbol,SPECIAL_DIFF_RULE}()
+
 function exp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a = A[1]
     push!(first_pass.args, :($out = ProbabilityModels.SLEEFPirates.exp($a)))
     a ∈ tracked_vars || return nothing
     push!(tracked_vars, out)
-    # ∂ = gensym(:∂)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :($∂ = $out))
     pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
-SPECIAL_DIFF_RULES[:exp] = exp_diff_rule!
+SPECIAL_DIFF_RULES[:exp] = SPECIAL_DIFF_RULE(exp_diff_rule!)
 function vexp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a = A[1]
     push!(first_pass.args, :($out = ProbabilityModels.PaddedMatrices.vexp($a)))
     a ∈ tracked_vars || return nothing
     push!(tracked_vars, out)
-    # ∂ = gensym(:∂)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :($∂ = Diagonal($out)))
     pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
-SPECIAL_DIFF_RULES[:vexp] = vexp_diff_rule!
+SPECIAL_DIFF_RULES[:vexp] = SPECIAL_DIFF_RULE(vexp_diff_rule!)
 function log_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a = A[1]
     push!(first_pass.args, :($out = ProbabilityModels.SLEEFPirates.log($a)))
     a ∈ tracked_vars || return nothing
     push!(tracked_vars, out)
-    # ∂ = gensym(:∂)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :($∂ = inv($a)))
     pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
-SPECIAL_DIFF_RULES[:log] = log_diff_rule!
+SPECIAL_DIFF_RULES[:log] = SPECIAL_DIFF_RULE(log_diff_rule!)
 function plus_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(first_pass.args, :($out = +($(A...)) ))
     track_out = false
@@ -56,7 +55,7 @@ function plus_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     track_out && push!(tracked_vars, out)
     nothing
 end
-SPECIAL_DIFF_RULES[:+] = plus_diff_rule!
+SPECIAL_DIFF_RULES[:+] = SPECIAL_DIFF_RULE(plus_diff_rule!)
 # add is specifically for DistributionsParameters.Target
 function add_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(first_pass.args, :($out = ProbabilityModels.SIMDPirates.vadd($(A...))))
@@ -71,7 +70,7 @@ function add_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     track_out && push!(tracked_vars, out)
     nothing
 end
-SPECIAL_DIFF_RULES[:vadd] = add_diff_rule!
+SPECIAL_DIFF_RULES[:vadd] = SPECIAL_DIFF_RULE(add_diff_rule!)
 function minus_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     @assert length(A) == 2
     a₁ = A[1]
@@ -84,7 +83,7 @@ function minus_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     track_out && push!(tracked_vars, out)
     nothing
 end
-SPECIAL_DIFF_RULES[:-] = minus_diff_rule!
+SPECIAL_DIFF_RULES[:-] = SPECIAL_DIFF_RULE(minus_diff_rule!)
 function inv_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a = A[1]
     if a ∉ tracked_vars
@@ -98,7 +97,7 @@ function inv_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
-SPECIAL_DIFF_RULES[:inv] = inv_diff_rule!
+SPECIAL_DIFF_RULES[:inv] = SPECIAL_DIFF_RULE(inv_diff_rule!)
 function inv′_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a = A[1]
     if a ∉ tracked_vars
@@ -112,7 +111,7 @@ function inv′_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
-SPECIAL_DIFF_RULES[:inv′] = inv′_diff_rule!
+SPECIAL_DIFF_RULES[:inv′] = SPECIAL_DIFF_RULE(inv′_diff_rule!)
 
 function mul_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     @assert length(A) == 2
@@ -143,7 +142,7 @@ function mul_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     pushfirst!(second_pass.args, :($(ProbabilityDistributions.return_expression(return_expr)) = ProbabilityModels.∂mul($a1, $a2, Val{$track_tup}())))
     nothing
 end
-SPECIAL_DIFF_RULES[:*] = mul_diff_rule!
+SPECIAL_DIFF_RULES[:*] = SPECIAL_DIFF_RULE(mul_diff_rule!)
 
 
 function itp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
@@ -169,7 +168,7 @@ function itp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(first_pass.args, :( $(ProbabilityDistributions.return_expression(∂tup)) = ProbabilityModels.∂ITPExpectedValue($(A...), Val{$track_tup}())))
     nothing
 end
-SPECIAL_DIFF_RULES[:ITPExpectedValue] = itp_diff_rule!
+SPECIAL_DIFF_RULES[:ITPExpectedValue] = SPECIAL_DIFF_RULE(itp_diff_rule!)
 
 function hierarchical_centering_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     # fourth arg would be Domains, which are not differentiable.
@@ -191,7 +190,7 @@ function hierarchical_centering_diff_rule!(first_pass, second_pass, tracked_vars
     push!(first_pass.args, :($func_output = ∂HierarchicalCentering($(A...), Val{$tracked}()) ) )
     nothing
 end
-SPECIAL_DIFF_RULES[:HierarchicalCentering] = hierarchical_centering_diff_rule!
+SPECIAL_DIFF_RULES[:HierarchicalCentering] = SPECIAL_DIFF_RULE(hierarchical_centering_diff_rule!)
 
 function tuple_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     for i ∈ eachindex(A)
@@ -209,7 +208,7 @@ function tuple_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(first_pass.args, :($out = Core.tuple($(A...))))
     nothing
 end
-SPECIAL_DIFF_RULES[:tuple] = tuple_diff_rule!
+SPECIAL_DIFF_RULES[:tuple] = SPECIAL_DIFF_RULE(tuple_diff_rule!)
 
 function diagonal_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     @assert length(A) == 1
@@ -226,7 +225,7 @@ function diagonal_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(first_pass.args, :($out = LinearAlgebra.Diagonal($a)))
     nothing
 end
-SPECIAL_DIFF_RULES[:Diagonal] = diagonal_diff_rule!
+SPECIAL_DIFF_RULES[:Diagonal] = SPECIAL_DIFF_RULE(diagonal_diff_rule!)
 
 function vec_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     @assert length(A) == 1
@@ -247,7 +246,7 @@ function vec_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
 #    println("out ∈ tracked: $(out ∈ tracked_vars)")
     nothing
 end
-SPECIAL_DIFF_RULES[:vec] = vec_diff_rule!
+SPECIAL_DIFF_RULES[:vec] = SPECIAL_DIFF_RULE(vec_diff_rule!)
 
 function reshape_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     @assert length(A) == 2
@@ -268,7 +267,7 @@ function reshape_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
 #    println("out ∈ tracked: $(out ∈ tracked_vars)")
     nothing
 end
-SPECIAL_DIFF_RULES[:reshape] = reshape_diff_rule!
+SPECIAL_DIFF_RULES[:reshape] = SPECIAL_DIFF_RULE(reshape_diff_rule!)
 
 
 function cov_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
@@ -293,7 +292,7 @@ function cov_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(first_pass.args, :($func_output = ProbabilityModels.DistributionParameters.∂CovarianceMatrix($(A...), Val{$tracked}()) ) )
     nothing
 end
-SPECIAL_DIFF_RULES[:CovarianceMatrix] = cov_diff_rule!
+SPECIAL_DIFF_RULES[:CovarianceMatrix] = SPECIAL_DIFF_RULE(cov_diff_rule!)
 
 function getindex_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     for i ∈ 2:length(A)
@@ -317,7 +316,7 @@ function getindex_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     end
     nothing
 end
-SPECIAL_DIFF_RULES[:getindex] = getindex_diff_rule!
+SPECIAL_DIFF_RULES[:getindex] = SPECIAL_DIFF_RULE(getindex_diff_rule!)
 
 function rank_update_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     # This function will have to be updated once we add rank updates for things other than
@@ -364,4 +363,4 @@ function rank_update_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     pushfirst!(second_pass.args, q)
     nothing
 end
-SPECIAL_DIFF_RULES[:rank_update] = rank_update_diff_rule!
+SPECIAL_DIFF_RULES[:rank_update] = SPECIAL_DIFF_RULE(rank_update_diff_rule!)

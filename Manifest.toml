@@ -63,14 +63,6 @@ path = "/home/chriselrod/.julia/dev/DistributionParameters"
 uuid = "c01b26ed-ce4c-5898-8a3a-ab63e1ee7b47"
 version = "0.1.0"
 
-[[IRTools]]
-deps = ["InteractiveUtils", "MacroTools", "Test"]
-git-tree-sha1 = "dfbcc882538f435b25dc4f4e104817b15cc21c9d"
-repo-rev = "master"
-repo-url = "https://github.com/MikeInnes/IRTools.jl.git"
-uuid = "7869d1d1-7146-5819-86e3-90919afe41df"
-version = "0.2.3"
-
 [[InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
