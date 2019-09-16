@@ -39,6 +39,11 @@ dim, stride, element type
 """
 describe_phase_point(z::PhasePoint{EvaluatedLogDensity{PtrVector{M,T,L,L}}}}) where {M,T,L} = M,L,T
 
+
+function DynamicHMC.calculate_p♯(κ::GaussianKineticEnergy, p::AbstractMutableFixedSizePaddedVector{P,T}, q = nothing) where {P,T}
+    κ.M⁻¹ * p
+end
+
 function DynamicHMC.adjacent_tree(sp::StackPointer, rng, trajectory, z, i, depth, is_forward)
     i′ = i + (is_forward ? 1 : -1)
     if depth == 0
@@ -267,9 +272,13 @@ function warmup(
 end
 
 function mcmc(sampling_logdensity::AbstractProbabilityModel{D}, N, warmup_state, sp = STACK_POINTER_REF[]) where {D}
+    chain = Matrix{eltype(Q.q)}(undef, length(Q.q), N)
+    mcmc!(chain, sampling_logdensity, N, warmup_state, sp)
+end
+function mcmc!(chain::AbstractMatrix, sampling_logdensity::AbstractProbabilityModel{D}, N, warmup_state, sp = STACK_POINTER_REF[]) where {D}
     @unpack rng, ℓ, sampler_options, reporter = sampling_logdensity
     @unpack Q, κ, ϵ = warmup_state
-    chain = Matrix{eltype(Q.q)}(undef, length(Q.q), N)
+
 #    chain = Vector{typeof(Q.q)}(undef, N)
     tree_statistics = Vector{TreeStatisticsNUTS}(undef, N)
     H = Hamiltonian(κ, ℓ)
@@ -277,6 +286,7 @@ function mcmc(sampling_logdensity::AbstractProbabilityModel{D}, N, warmup_state,
     for i in 1:N
         Q, tree_statistics[i] = sample_tree(sp, rng, sampler_options, H, Q, ϵ)
         chain[:,i] .= Q.q
+        
         report(mcmc_reporter, i)
     end
     (chain = chain, tree_statistics = tree_statistics)

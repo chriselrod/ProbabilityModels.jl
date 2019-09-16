@@ -31,7 +31,7 @@ function emax_dose_response_quote(M::Union{Int,Symbol}, T, isvec::NTuple{3,Bool}
         end
         if trackc
             if need_loop && !cisvec
-                push!(body.args, :(∂f∂c += a*b*d*d)))
+                push!(body.args, :(∂f∂c += a*b*d*d))
             else
                 push!(body.args, :(∂f∂c = a*b*d*d))
             end
@@ -50,7 +50,7 @@ function emax_dose_response_quote(M::Union{Int,Symbol}, T, isvec::NTuple{3,Bool}
         end
     end
     body = macroexpand(Base, :(@fastmath $body))
-    final_ret = sp ? :((sptr, $return_expr)) : return_expr)
+    final_ret = sp ? :((sptr, $return_expr)) : return_expr
     if need_loop
         quote
             $head
@@ -93,11 +93,11 @@ end
 end
 @generated function emax_dose_response(
     sptr::StackPointer,
-    a::Union{T,<:AbstractVector{M,T,L,L}},
-    b::Union{T,<:AbstractVector{M,T,L,L}},
-    c::Union{T,<:AbstractVector{M,T,L,L}},
+    a::Union{T,<:AbstractVector{T}},
+    b::Union{T,<:AbstractVector{T}},
+    c::Union{T,<:AbstractVector{T}},
     ::Val{track} = Val{(false,false,false)}()
-) where {M, T, L, track}
+) where {T, track}
     (L,isvec) = if a <: AbstractFixedSizePaddedVector
         full_length(a), true
     elseif b <: AbstractFixedSizePaddedVector
