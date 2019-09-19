@@ -16,7 +16,7 @@ import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED
     RESERVED_MULTIPLY_SEED_RESERVED, RESERVED_NMULTIPLY_SEED_RESERVED,
     AbstractFixedSizePaddedVector, AbstractMutableFixedSizePaddedVector,
     AbstractMutableFixedSizePaddedArray
-import QuasiNewtonMethods: logdensity, logdensity_and_gradient!
+import QuasiNewtonMethods: AbstractProbabilityModel, logdensity, logdensity_and_gradient!, dimension
 
 export @model#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
 
@@ -28,9 +28,7 @@ const LOCAL_STACK_SIZE = Ref{Int}()
 const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
 const NTHREADS = Ref{Int}()
 
-abstract type AbstractProbabilityModel{D} end# <: LogDensityProblems.AbstractLogDensityProblem end
-dimension(::AbstractProbabilityModel{D}) where {D} = PaddedMatrices.Static{D}()
-Base.length(::AbstractProbabilityModel{D}) where {D} = D
+
 # LogDensityProblems.capabilities(::Type{<:AbstractProbabilityModel}) = LogDensityProblems.LogDensityOrder{1}()
 # `@inline` so that we can avoid the allocation for tuple creation
 # additionally, the logdensity(_and_gradient!) method itself will not in general
