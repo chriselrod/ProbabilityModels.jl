@@ -22,77 +22,94 @@ export @model#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_
 
 # function logdensity_and_gradient! end
 
+const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
+const STACK_POINTER_REF = Ref{StackPointer}()
+const LOCAL_STACK_SIZE = Ref{Int}()
+const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
+const NTHREADS = Ref{Int}()
+
 abstract type AbstractProbabilityModel{D} end# <: LogDensityProblems.AbstractLogDensityProblem end
-dimension(::AbstractProbabilityModel{D}) where {D} = D
+dimension(::AbstractProbabilityModel{D}) where {D} = PaddedMatrices.Static{D}()
+Base.length(::AbstractProbabilityModel{D}) where {D} = D
 # LogDensityProblems.capabilities(::Type{<:AbstractProbabilityModel}) = LogDensityProblems.LogDensityOrder{1}()
 # `@inline` so that we can avoid the allocation for tuple creation
 # additionally, the logdensity(_and_gradient!) method itself will not in general
 # be inlined. There is only a single method (on PtrVectors) defined,
 # so that the functions will only have to be compiled once per AbstractProbabilityModel.
-@inline function logdensity(l::AbstractProbabilityModel{D}, θ::AbstractVector{T}) where {D,T}
+@inline function logdensity(
+    ℓ::AbstractProbabilityModel{D},
+    θ::AbstractVector{T},
+    sptr::StackPointer = STACK_POINTER_REF[]
+) where {D,T}
     @boundscheck length(θ) == D || PaddedMatrices.ThrowBoundsError()
     GC.@preserve θ begin
         θptr = PtrVector{D,T,D,D}(pointer(θ))
-        lp = logdensity(l, θptr)
+        lp = logdensity(ℓ, θptr, sptr)
     end
     lp
 end
-@inline function logdensity(l::AbstractProbabilityModel{D}, θ::AbstractMutableFixedSizePaddedVector{D,T}) where {D,T}
+@inline function logdensity(
+    ℓ::AbstractProbabilityModel{D},
+    θ::AbstractMutableFixedSizePaddedVector{D,T},
+    sptr::StackPointer = STACK_POINTER_REF[]
+) where {D,T}
     GC.@preserve θ begin
         θptr = PtrVector{D,T,D,D}(pointer(θ))
-        lp = logdensity(l, θptr)
+        lp = logdensity(ℓ, θptr, sptr)
     end
     lp
 end
 @inline function logdensity_and_gradient!(
     ∇::AbstractVector{T},
-    l::AbstractProbabilityModel{D},
-    θ::AbstractVector{T}
+    ℓ::AbstractProbabilityModel{D},
+    θ::AbstractVector{T},
+    sptr::StackPointer = STACK_POINTER_REF[]
 ) where {D,T}
     @boundscheck max(length(∇),length(θ)) > D && PaddedMatrices.ThrowBoundsError()
     GC.@preserve ∇ θ begin
         ∇ptr = PtrVector{D,T,D,D}(pointer(∇));
         θptr = PtrVector{D,T,D,D}(pointer(θ));
-        lp = logdensity_and_gradient!(∇ptr, l, θptr)
+        lp = logdensity_and_gradient!(∇ptr, ℓ, θptr, sptr)
     end
     lp
 end
 @inline function logdensity_and_gradient!(
     ∇::AbstractMutableFixedSizePaddedVector{D,T},
-    l::AbstractProbabilityModel{D},
-    θ::AbstractMutableFixedSizePaddedVector{D,T}
+    ℓ::AbstractProbabilityModel{D},
+    θ::AbstractMutableFixedSizePaddedVector{D,T},
+    sptr::StackPointer = STACK_POINTER_REF[]
 ) where {D,T}
     GC.@preserve ∇ θ begin
         ∇ptr = PtrVector{D,T,D,D}(pointer(∇));
         θptr = PtrVector{D,T,D,D}(pointer(θ));
-        lp = logdensity_and_gradient!(∇ptr, l, θptr)
+        lp = logdensity_and_gradient!(∇ptr, ℓ, θptr, sptr)
     end
     lp
 end
 @inline function logdensity_and_gradient(
     sp::StackPointer,
-    l::AbstractProbabilityModel{D},
+    ℓ::AbstractProbabilityModel{D},
     θ::AbstractMutableFixedSizePaddedVector{D,T}
 ) where {D,T}
     ∇ = PtrVector{D,T,D,D}(pointer(sp,T))
     sp += VectorizationBase.align(D*sizeof(T))
-    sp, (logdensity_and_gradient!(∇, l, θ, sp), ∇)
+    sp, (logdensity_and_gradient!(∇, ℓ, θ, sp), ∇)
 end
 @inline function logdensity_and_gradient(
     sp::StackPointer,
-    l::AbstractProbabilityModel{D},
+    ℓ::AbstractProbabilityModel{D},
     θ::AbstractVector{T}
 ) where {D,T}
     @boundscheck length(θ) > D && PaddedMatrices.ThrowBoundsError()
     ∇ = PtrVector{D,T,D,D}(pointer(sp,T))
     sp += VectorizationBase.align(D*sizeof(T))
-    sp, (logdensity_and_gradient!(∇, l, θ, sp), ∇)
+    sp, (logdensity_and_gradient!(∇, ℓ, θ, sp), ∇)
 end
 @inline function logdensity_and_gradient(
-    l::AbstractProbabilityModel{D}, θ
+    l::AbstractProbabilityModel{D}, θ, sptr::StackPointer = STACK_POINTER_REF[]
 ) where {D}
     ∇ = PaddedMatrices.mutable_similar(θ)
-    logdensity_and_gradient!(∇, l, θ), ∇
+    logdensity_and_gradient!(∇, l, θ, sptr), ∇
 end
 
 
@@ -107,12 +124,6 @@ include("model_macro_passes.jl")
 # include("mcmc_chains.jl")
 include("rng.jl")
 # include("dynamic_hmc_interface.jl")
-
-const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
-const STACK_POINTER_REF = Ref{StackPointer}()
-const LOCAL_STACK_SIZE = Ref{Int}()
-const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
-const NTHREADS = Ref{Int}()
 
 @def_stackpointer_fallback emax_dose_response ITPExpectedValue ∂ITPExpectedValue HierarchicalCentering ∂HierarchicalCentering
 function __init__()
@@ -148,7 +159,7 @@ Re-evaluating densities without first recompiling them will likely crash Julia!"
 end
 
 rel_error(x, y) = (x - y) / y
-function check_gradient(data, a = randn(dimension(data)))
+function check_gradient(data, a = randn(length(data)))
     lp, g = logdensity_and_gradient(data, a)
     for i ∈ eachindex(a)
         aᵢ = a[i]

@@ -548,7 +548,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     stack_pointer_expr = NTHREADS[] == 1 ? base_stack_pointer : :($base_stack_pointer + (Threads.threadid()-1)*$(LOCAL_STACK_SIZE[]))
     # we have to split these, because of dispatch ambiguity errors
     θq_value = quote
-        @generated function ProbabilityModels.LogDensityProblems.logdensity(
+        @generated function ProbabilityModels.logdensity(
                     $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                     $θ::PtrVector{$Nparam, $T, $Nparam, $Nparam},
                     $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = $stack_pointer_expr
@@ -702,7 +702,7 @@ function generate_generated_funcs_expressions(model_name, expr)
             T_sym = $(QuoteNode(T))
             ℓ_sym = $(QuoteNode(ℓ))
             $processing
-            final_quote = PaddedMatrices.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),nothing,$(verbose_models())) |> ProbabilityModels.PaddedMatrices.simplify_expr
+            final_quote = PaddedMatrices.StackPointers.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),nothing,$(verbose_models())) |> ProbabilityModels.PaddedMatrices.simplify_expr
               # final_quote = quote
                 # @fastmath @inbounds begin
                     # @inbounds begin
