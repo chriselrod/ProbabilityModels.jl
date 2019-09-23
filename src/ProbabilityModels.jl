@@ -158,7 +158,9 @@ end
 
 rel_error(x, y) = (x - y) / y
 function check_gradient(data, a = randn(length(data)))
+    acopy = copy(a)
     lp, g = logdensity_and_gradient(data, a)
+    all(i -> a[i] == acopy[i], eachindex(a)) || throw("Logdensity mutated inputs!?!?!?")
     for i ∈ eachindex(a)
         aᵢ = a[i]
         step = cbrt(eps(aᵢ))

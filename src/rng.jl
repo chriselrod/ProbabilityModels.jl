@@ -14,7 +14,7 @@ function threadrandinit!(sptr::StackPointer, pcg_vector::Vector{PtrPCG{P}}) wher
         end
         stack_ptr += local_stack_size
     end
-    sptr + (2P+1)*W
+    sptr + (2P+1)*8W
 end
 
 # function rand_p(sp::StackPointer, rng::VectorizedRNG.AbstractPCG, κ::GaussianKineticEnergy{S,S}, q = nothing) where {S <: Diagonal}

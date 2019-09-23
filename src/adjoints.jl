@@ -79,7 +79,7 @@ end
     ::Reducer{:row}
 ) where {M,N,T,P}
     quote
-        reduction = PtrVector{$N,$T,$N,$N}(pointer(sp,$T))
+        reduction = PtrVector{$N,$T,$N}(pointer(sp,$T))
         @inbounds for n ∈ 0:(N-1)
             sₙ = zero($T)
             @vvectorize $T for m ∈ 1:$M
@@ -94,12 +94,12 @@ end
     sp::StackPointer,
     A::PaddedMatrices.AbstractFixedSizePaddedMatrix{M,N,T,PA},
     ::Reducer{:row},
-    C′::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractMutableFixedSizePaddedVector{N,T,PC,PC}}
+    C′::LinearAlgebra.Adjoint{T,<:PaddedMatrices.AbstractMutableFixedSizePaddedVector{N,T,PC}}
 ) where {M,N,T,PA,PC}
     quote
-        #        reduction = PtrVector{N,T,P,P}(pointer(sp,T))
+        #        reduction = PtrVector{N,T,P}(pointer(sp,T))
         C = C′'
-        D = PtrVector{$N,$T,$PC,$PC}(pointer(sp,$T))
+        D = PtrVector{$N,$T,$PC}(pointer(sp,$T))
         @inbounds for n ∈ 0:(N-1)
             sₙ = zero(T)
             @vvectorize $T for m ∈ 1:$M
@@ -150,7 +150,7 @@ end
     # @assert sum(S) == M
     N = length(S)
     q = quote
-        out = PtrVector{$N,$T,$N,$N}(pointer(sp,$T))
+        out = PtrVector{$N,$T,$N}(pointer(sp,$T))
     end
     outtup = Expr(:tuple,)
     ind = 0
