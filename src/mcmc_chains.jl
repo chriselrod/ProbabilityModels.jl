@@ -12,7 +12,7 @@ function MCMCChains.ess(
     T = Float64
     # Split the chains.
     parameter_vec = Vector{Vector{Vector{T}}}(undef, length(param))
-    midpoint = Int32(size(chn, 1) >> 1)
+    midpoint = Int32(size(chn, 1) >>> 1)
     for i in 1:length(param)
 	parameter_vec[i] = Vector{T}[]
 	for j in 1:n_chain_orig

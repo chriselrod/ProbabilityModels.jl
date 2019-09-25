@@ -43,6 +43,12 @@ function translate_sampling_statements(expr)
 #            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
+        elseif @capture(x, a_:b_)
+            if a isa Integer && x isa Integer
+                return :(StaticUnitRange{$a,$b}())
+            else
+                return x
+            end
         else
             return x
         end
@@ -78,95 +84,95 @@ function flatten_expression(expr)
     q
 end
 
-"""
-This pass is to be applied to a flattened expression, after expressions such as
-a += b
-a -= b
-a *= b
-a /= b
-have been expanded. Later insertions of these symbols, for example in the constraining
-transformations of the parameters, will be bypassed. This allows for incrementing of
-the `ProbabilityModels.VectorizationBase.vectorizable` parameters:
-Symbol("##θparameter##")
-Symbol("##∂θparameter##")
+# """
+# This pass is to be applied to a flattened expression, after expressions such as
+# a += b
+# a -= b
+# a *= b
+# a /= b
+# have been expanded. Later insertions of these symbols, for example in the constraining
+# transformations of the parameters, will be bypassed. This allows for incrementing of
+# the `ProbabilityModels.VectorizationBase.vectorizable` parameters:
+# Symbol("##θparameter##")
+# Symbol("##∂θparameter##")
 
-This pass skips assignments involving the following functions:
-PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED
-PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED
+# This pass skips assignments involving the following functions:
+# PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED
+# PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED
 
-This pass returns the expression in a static single assignment (SSA) form.
-"""
-function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
-    postwalk(expr) do ex
-        if @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(args__)) || @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED(args__))
-            return ex
-        elseif @capture(ex, a_ = b_)
-            if isa(b, Expr)
-                c = postwalk(x -> get(vars, x, x), b)
-            else
-                c = b
-            end
-            if isa(a, Symbol) && !MacroTools.isgensym(a)
-                if haskey(vars, a)
-                    lhs = gensym(a)
-                    vars[a] = lhs
-                    return :($lhs = $c)
-                else
-                    vars[a] = a
-                    return :($a = $c)
-                end
-            else
-                return :($a = $c)
-            end
-        elseif @capture(ex, if cond_; conditionaleval_ end)
-            conditional = postwalk(x -> get(vars, x, x), cond)
-            conditionaleval, tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
-            else_expr = quote end
-            for (k, (vbase,vfinal)) ∈ tracked_vars.reassigned
-                push!(else_expr.args, :($vfinal = $vbase))
-                vars[k] = vfinal
-            end
-            return quote
-                if $conditional
-                    $conditionaleval
-                else
-                    $else_expr
-                end
-            end
-        elseif @capture(ex, if cond_; conditionaleval_; else; alternateeval_ end)
-            conditional = postwalk(x -> get(vars, x, x), cond)
-            if_conditionaleval, if_tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
-            else_conditionaleval, else_tracked_vars = rename_assignments(alternateeval, TrackedDict(vars))
-            for (k, (vbase,vfinal)) ∈ if_tracked_vars.reassigned
-                if haskey(else_tracked_vars.reassigned, k)
-                    push!(else_conditionaleval.args, :($vfinal = $(else_tracked_vars.reassigned[k])))
-                else
-                    push!(else_conditionaleval.args, :($vfinal = $vbase))
-                end
-                vars[k] = vfinal
-            end
-            for (k, (vbase,vfinal)) ∈ else_tracked_vars.reassigned
-                haskey(if_tracked_vars.reassigned, k) && continue
-                push!(if_conditionaleval.args, :($vfinal = $vbase))
-                vars[k] = vfinal
-            end
-            for k ∈ union(keys(if_tracked_vars.newlyassigned),keys(else_tracked_vars.newlyassigned))
-                canonical_name = if_tracked_vars.newlyassigned[k]
-                vars[k] = canonical_name
-                push!(else_expr.args, :($canonical_name = $(else_tracked_vars.newlyassigned[k])))
-            end
-            return quote
-                if $conditional
-                    $if_conditionaleval
-                else
-                    $else_conditionaleval
-                end
-            end
-        else
-            return ex
-        end
-    end, vars
-end
+# This pass returns the expression in a static single assignment (SSA) form.
+# """
+# function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
+#     postwalk(expr) do ex
+#         if @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(args__)) || @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED(args__))
+#             return ex
+#         elseif @capture(ex, a_ = b_)
+#             if isa(b, Expr)
+#                 c = postwalk(x -> get(vars, x, x), b)
+#             else
+#                 c = b
+#             end
+#             if isa(a, Symbol) && !MacroTools.isgensym(a)
+#                 if haskey(vars, a)
+#                     lhs = gensym(a)
+#                     vars[a] = lhs
+#                     return :($lhs = $c)
+#                 else
+#                     vars[a] = a
+#                     return :($a = $c)
+#                 end
+#             else
+#                 return :($a = $c)
+#             end
+#         elseif @capture(ex, if cond_; conditionaleval_ end)
+#             conditional = postwalk(x -> get(vars, x, x), cond)
+#             conditionaleval, tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
+#             else_expr = quote end
+#             for (k, (vbase,vfinal)) ∈ tracked_vars.reassigned
+#                 push!(else_expr.args, :($vfinal = $vbase))
+#                 vars[k] = vfinal
+#             end
+#             return quote
+#                 if $conditional
+#                     $conditionaleval
+#                 else
+#                     $else_expr
+#                 end
+#             end
+#         elseif @capture(ex, if cond_; conditionaleval_; else; alternateeval_ end)
+#             conditional = postwalk(x -> get(vars, x, x), cond)
+#             if_conditionaleval, if_tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
+#             else_conditionaleval, else_tracked_vars = rename_assignments(alternateeval, TrackedDict(vars))
+#             for (k, (vbase,vfinal)) ∈ if_tracked_vars.reassigned
+#                 if haskey(else_tracked_vars.reassigned, k)
+#                     push!(else_conditionaleval.args, :($vfinal = $(else_tracked_vars.reassigned[k])))
+#                 else
+#                     push!(else_conditionaleval.args, :($vfinal = $vbase))
+#                 end
+#                 vars[k] = vfinal
+#             end
+#             for (k, (vbase,vfinal)) ∈ else_tracked_vars.reassigned
+#                 haskey(if_tracked_vars.reassigned, k) && continue
+#                 push!(if_conditionaleval.args, :($vfinal = $vbase))
+#                 vars[k] = vfinal
+#             end
+#             for k ∈ union(keys(if_tracked_vars.newlyassigned),keys(else_tracked_vars.newlyassigned))
+#                 canonical_name = if_tracked_vars.newlyassigned[k]
+#                 vars[k] = canonical_name
+#                 push!(else_expr.args, :($canonical_name = $(else_tracked_vars.newlyassigned[k])))
+#             end
+#             return quote
+#                 if $conditional
+#                     $if_conditionaleval
+#                 else
+#                     $else_conditionaleval
+#                 end
+#             end
+#         else
+#             return ex
+#         end
+#     end, vars
+# end
 
 """
 Translates first update statements into assignments.
