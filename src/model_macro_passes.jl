@@ -44,11 +44,20 @@ function translate_sampling_statements(expr)
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
         elseif @capture(x, a_:b_)
-            if a isa Integer && x isa Integer
+            if a isa Integer && b isa Integer
                 return :(StaticUnitRange{$a,$b}())
             else
                 return x
             end
+        else
+            return x
+        end
+    end
+end
+function interpolate_globals(expr)
+    postwalk(expr) do x
+        if x isa Expr && x.head == :$
+            return eval(first(x.args))
         else
             return x
         end
@@ -538,6 +547,7 @@ function generate_generated_funcs_expressions(model_name, expr)
 
     # Translate the sampling statements, and then flatten the expression to remove nesting.
     expr = translate_sampling_statements(expr) |>
+                interpolate_globals |> 
                 flatten_expression# |>
 
     # The plan in this definition is to make each keyword arg default to the appropriate field of ℓ
