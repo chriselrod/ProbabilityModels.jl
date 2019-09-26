@@ -1,6 +1,6 @@
 #@nospecialize
 
-function determine_variables(expr)
+function determine_variables(expr)::Set{Symbol}
     variables = Set{Symbol}()
     ignored_symbols = Set{Symbol}()
     push!(ignored_symbols, :target)
@@ -18,7 +18,7 @@ function determine_variables(expr)
     variables
 end
 
-function translate_sampling_statements(expr)
+function translate_sampling_statements(expr)::Expr
     prewalk(expr) do x
         if @capture(x, y0_ ~ f0_(θ0__))
             # @show f, y, θ
@@ -54,7 +54,7 @@ function translate_sampling_statements(expr)
         end
     end
 end
-function interpolate_globals(expr)
+function interpolate_globals(expr)::Expr
     postwalk(expr) do x
         if x isa Expr && x.head == :$
             return eval(first(x.args))
@@ -65,7 +65,7 @@ function interpolate_globals(expr)
 end
 
 ssa_sym(i::Int) = Symbol("##SSAValue##$(i)##")
-function ssa_to_sym(expr)
+function ssa_to_sym(expr)::Expr
     postwalk(expr) do ex
         if ex isa Core.SSAValue
             return ssa_sym(ex.id)
@@ -76,7 +76,7 @@ function ssa_to_sym(expr)
         end
     end
 end
-function flatten_expression(expr)
+function flatten_expression(expr)::Expr
     lowered_array = Meta.lower(ProbabilityModels, expr).args
     @assert length(lowered_array) == 1
     lowered = first(lowered_array).code
@@ -194,7 +194,7 @@ it may not be able to do so for arbitrary user types.
 
 
 """
-function first_updates_to_assignemnts(expr, variables_input)
+function first_updates_to_assignemnts(expr, variables_input)::Expr
     # Note that this function is recursive.
     # variables_input must NOT be a Set, otherwise that set will be mutated.
     # The idea is to call it with something other than a set.
@@ -362,7 +362,7 @@ function constant_drop_pass!(first_pass, expr, tracked_vars, verbose = false)
             push!(first_pass.args, x)
         end
     end
-    first_pass
+    nothing
 end
 
 
@@ -507,7 +507,8 @@ end
 #end
 
 function generate_generated_funcs_expressions(model_name, expr)
-    # Determine the set of variables that are either parameters or data.
+    # Determine the set of variables that are either parameters or data, after interpolating any globals inserted via `$`
+    expr = interpolate_globals(expr)
     variable_set = determine_variables(expr)
     variables = [v for v ∈ variable_set] # ensure order is constant
     variable_type_names = [Symbol("##Type##", v) for v ∈ variables]
@@ -547,7 +548,6 @@ function generate_generated_funcs_expressions(model_name, expr)
 
     # Translate the sampling statements, and then flatten the expression to remove nesting.
     expr = translate_sampling_statements(expr) |>
-                interpolate_globals |> 
                 flatten_expression# |>
 
     # The plan in this definition is to make each keyword arg default to the appropriate field of ℓ

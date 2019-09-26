@@ -16,15 +16,15 @@ function noopdiff!(first_pass, second_pass, tracked_vars, out, f, A)
 end
 
 # How to search modules?
-function reverse_diff_pass(expr, gradient_targets)
-    tracked_vars = Set{Symbol}(gradient_targets)
-    q_first_pass = @q begin end
-    first_pass = q_first_pass.args
-    q_second_pass = @q begin end
-    second_pass = q_second_pass.args
-    ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
-    q_first_pass, q_second_pass
-end
+# function reverse_diff_pass(expr, gradient_targets)
+    # tracked_vars = Set{Symbol}(gradient_targets)
+    # q_first_pass = @q begin end
+    # first_pass = q_first_pass.args
+    # q_second_pass = @q begin end
+    # second_pass = q_second_pass.args
+    # ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars)
+    # q_first_pass, q_second_pass
+# end
 
 # function reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
 #     # if we have a for loop, we apply the pass to the loop body, creating new loop expressions
