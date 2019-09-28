@@ -14,8 +14,8 @@ using FunctionWrappers: FunctionWrapper
 import MacroTools: postwalk, prewalk, @capture, @q
 import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,
     RESERVED_MULTIPLY_SEED_RESERVED, RESERVED_NMULTIPLY_SEED_RESERVED,
-    AbstractFixedSizePaddedVector, AbstractMutableFixedSizePaddedVector,
-    AbstractMutableFixedSizePaddedArray
+    AbstractFixedSizeVector, AbstractMutableFixedSizeVector,
+    AbstractMutableFixedSizeArray
 import QuasiNewtonMethods: AbstractProbabilityModel, logdensity, logdensity_and_gradient!, dimension
 
 export @model#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
@@ -48,7 +48,7 @@ const NTHREADS = Ref{Int}()
 end
 @inline function logdensity(
     ℓ::AbstractProbabilityModel{D},
-    θ::AbstractMutableFixedSizePaddedVector{D,T},
+    θ::AbstractMutableFixedSizeVector{D,T},
     sptr::StackPointer = STACK_POINTER_REF[]
 ) where {D,T}
     GC.@preserve θ begin
@@ -72,9 +72,9 @@ end
     lp
 end
 @inline function logdensity_and_gradient!(
-    ∇::AbstractMutableFixedSizePaddedVector{D,T},
+    ∇::AbstractMutableFixedSizeVector{D,T},
     ℓ::AbstractProbabilityModel{D},
-    θ::AbstractMutableFixedSizePaddedVector{D,T},
+    θ::AbstractMutableFixedSizeVector{D,T},
     sptr::StackPointer = STACK_POINTER_REF[]
 ) where {D,T}
     GC.@preserve ∇ θ begin
@@ -87,7 +87,7 @@ end
 @inline function logdensity_and_gradient(
     sp::StackPointer,
     ℓ::AbstractProbabilityModel{D},
-    θ::AbstractMutableFixedSizePaddedVector{D,T}
+    θ::AbstractMutableFixedSizeVector{D,T}
 ) where {D,T}
     ∇ = PtrVector{D,T,D}(pointer(sp,T))
     sp += VectorizationBase.align(D*sizeof(T))

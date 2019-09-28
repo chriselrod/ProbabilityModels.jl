@@ -45,7 +45,7 @@ function translate_sampling_statements(expr)::Expr
             return :($a = $a + $b)
         elseif @capture(x, a_:b_)
             if a isa Integer && b isa Integer
-                return :(ProbabilityModels.PaddedMatrices.StaticUnitRange{$a,$b}())
+                return :(ProbabilityModels.PaddedMatrices.Static{$a:$b}())
             else
                 return x
             end
@@ -557,7 +557,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                   )
                 elseif $(variable_type_names[i]) <: Array
                   push!(first_pass.args, $load_data_dynamic_ptr_array)
-                elseif $(variable_type_names[i]) <: ProbabilityModels.PaddedMatrices.AbstractMutableFixedSizePaddedArray
+                elseif $(variable_type_names[i]) <: ProbabilityModels.PaddedMatrices.AbstractMutableFixedSizeArray
                   push!(first_pass.args, $load_data_ptr_array)
                 else
                     push!(first_pass.args, $load_data)

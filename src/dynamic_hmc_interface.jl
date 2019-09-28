@@ -2,7 +2,7 @@
 function DynamicHMC.leapfrog(sp::StackPointer,
         H::Hamiltonian{DynamicHMC.GaussianKineticEnergy{<:Diagonal}},
         z::PhasePoint{DynamicHMC.EvaluatedLogDensity{T,S}}, ϵ
-) where {P,L,S,T <: AbstractFixedSizePaddedVector{P,S,L,L}}
+) where {P,L,S,T <: AbstractFixedSizeVector{P,S,L,L}}
     @unpack ℓ, κ = H
     @unpack p, Q = z
     @argcheck isfinite(Q.ℓq) "Internal error: leapfrog called from non-finite log density"
@@ -40,7 +40,7 @@ dim, stride, element type
 describe_phase_point(z::PhasePoint{EvaluatedLogDensity{PtrVector{M,T,L,L}}}}) where {M,T,L} = M,L,T
 
 
-function DynamicHMC.calculate_p♯(κ::GaussianKineticEnergy, p::AbstractMutableFixedSizePaddedVector{P,T}, q = nothing) where {P,T}
+function DynamicHMC.calculate_p♯(κ::GaussianKineticEnergy, p::AbstractMutableFixedSizeVector{P,T}, q = nothing) where {P,T}
     κ.M⁻¹ * p
 end
 

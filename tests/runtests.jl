@@ -130,13 +130,13 @@ expr_out = quote
     # target = zero($T_sym)
     $(Symbol("##θparameter##")) = VectorizationBase.vectorizable($θ_sym)
     $first_pass
-    $(Symbol("##∂θparameter##m")) = PaddedMatrices.MutableFixedSizePaddedVector{$TLθ,$T_sym}(undef)
+    $(Symbol("##∂θparameter##m")) = PaddedMatrices.MutableFixedSizeVector{$TLθ,$T_sym}(undef)
     $(Symbol("##∂θparameter##")) = VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
     $(Symbol("###adjoint###", name_dict[:target])) = ProbabilityModels.One()
     $second_pass
     LogDensityProblems.ValueGradient(
         $(name_dict[:target]),
-        PaddedMatrices.ConstantFixedSizePaddedVector($(Symbol("##∂θparameter##m")))
+        PaddedMatrices.ConstantFixedSizeVector($(Symbol("##∂θparameter##m")))
     )
 end;
 final_expr = first_updates_to_assignemnts(expr_out, model_parameters)
@@ -375,16 +375,16 @@ b1 = HierarchicalCentering((@Constant randn(K)), m01, σd, domains); # placebo
 b2 = HierarchicalCentering((@Constant randn(K)), m02, σd, domains); # treatment
 
 δₜ = 0.06125 *  reduce(+, (@Constant randexp(T-1)) for i ∈ 1:8);
-t = vcat(zero(ConstantFixedSizePaddedVector{1,Float64}), cumsum(δₜ));
+t = vcat(zero(ConstantFixedSizeVector{1,Float64}), cumsum(δₜ));
 mu1 = ProbabilityModels.ITPExpectedValue(t, b1, κ, θ);
 mu2 = ProbabilityModels.ITPExpectedValue(t, b2, κ, θ);
 
 ρ = 0.7; ARmat = StructuredMatrices.AutoregressiveMatrix(ρ, δₜ);
-# ARcholinv = ConstantFixedSizePaddedMatrix(ARmat);
-ARchol = PaddedMatrices.chol(ConstantFixedSizePaddedMatrix(ARmat));
+# ARcholinv = ConstantFixedSizeMatrix(ARmat);
+ARchol = PaddedMatrices.chol(ConstantFixedSizeMatrix(ARmat));
 
 
-pσU = MutableFixedSizePaddedMatrix{K,K,Float64}(undef); pσU .= L'; cσU = ConstantFixedSizePaddedMatrix(pσU);
+pσU = MutableFixedSizeMatrix{K,K,Float64}(undef); pσU .= L'; cσU = ConstantFixedSizeMatrix(pσU);
 Y1 = [ARchol * (@Constant randn(T, K)) * cσU + mu1 for n in 1:56];
 Y2 = [ARchol * (@Constant randn(T, K)) * cσU + mu2 for n in 1:56];
 Y1c = ChunkedArray(Y1);
@@ -513,7 +513,7 @@ function gradicompare(ℓ, vgg, a, a2, i)
     d1, d2, round((d1-d2)/d1, digits = 4)
 end
 function compare_grads(ℓ, a)
-    a2 = MutableFixedSizePaddedVector(a);
+    a2 = MutableFixedSizeVector(a);
     vgg = logdensity(LogDensityProblems.ValueGradient, ℓ, a).gradient
     for i ∈ 1:dimension(ℓ)
        # ℓ, vgg, a, a2
@@ -546,8 +546,8 @@ chain_matrix3 = get_position_matrix(mcmc_chain3);
 
 
 using VectorizationBase, PaddedMatrices, StructuredMatrices, BenchmarkTools
-δ = MutableFixedSizePaddedMatrix{T,K,NTuple{8,Core.VecElement{Float64}},T,(T*K)}(undef);
-δU = MutableFixedSizePaddedMatrix{T,K,NTuple{8,Core.VecElement{Float64}},T,(T*K)}(undef);
+δ = MutableFixedSizeMatrix{T,K,NTuple{8,Core.VecElement{Float64}},T,(T*K)}(undef);
+δU = MutableFixedSizeMatrix{T,K,NTuple{8,Core.VecElement{Float64}},T,(T*K)}(undef);
 Yᵥ = VectorizationBase.vectorizable(Y1c);
 remmask = Y1c.mask;
 @benchmark PaddedMatrices.vload!($δ, $Yᵥ + 0)
@@ -556,7 +556,7 @@ remmask = Y1c.mask;
 @benchmark mul!($δU, $δ, $U)
 
 
-function chain_to_array(chain::Array{NUTS_Transition{ConstantFixedSizePaddedArray{Tuple{N},Float64,1,L,L},Float64},1}) where {N,L}
+function chain_to_array(chain::Array{NUTS_Transition{ConstantFixedSizeArray{Tuple{N},Float64,1,Tuple{1},L},Float64},1}) where {N,L}
     pos = get_position.(chain)
     s = sizeof(eltype(pos)) >> 3
     reshape(reinterpret(Float64, pos), (s,length(pos)))[1:N,:]
@@ -596,7 +596,7 @@ effective_sample_size(c1[:,4])
 β₂ = vcat(ntuple(i -> (@Constant randn(domains[i])) + μₕ₂[i], Val(4))...); # treatment
 
 δt = @Constant rand(23); lastt = Ref(0.0);
-t = ConstantFixedSizePaddedVector{24,Float64}(ntuple(i -> i == 1 ? 0.0 : lastt[] += δt[i-1], Val(24)));
+t = ConstantFixedSizeVector{24,Float64}(ntuple(i -> i == 1 ? 0.0 : lastt[] += δt[i-1], Val(24)));
 
 μ₁ = ITPExpectedValue(t, β₁, κ)
 μ₂ = ITPExpectedValue(t, β₂, κ)

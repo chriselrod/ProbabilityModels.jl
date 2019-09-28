@@ -74,11 +74,11 @@ end
     c::Union{T,<:AbstractVector{T}},
     ::Val{track} = Val{(false,false,false)}()
 ) where {T, track}
-    (L,isvec) = if a <: AbstractFixedSizePaddedVector
+    (L,isvec) = if a <: AbstractFixedSizeVector
         full_length(a), true
-    elseif b <: AbstractFixedSizePaddedVector
+    elseif b <: AbstractFixedSizeVector
         full_length(b), true
-    elseif c <: AbstractFixedSizePaddedVector
+    elseif c <: AbstractFixedSizeVector
         full_length(c), true
     elseif a != T
         :(length(a)), true
@@ -98,11 +98,11 @@ end
     c::Union{T,<:AbstractVector{T}},
     ::Val{track} = Val{(false,false,false)}()
 ) where {T, track}
-    (L,isvec) = if a <: AbstractFixedSizePaddedVector
+    (L,isvec) = if a <: AbstractFixedSizeVector
         full_length(a), true
-    elseif b <: AbstractFixedSizePaddedVector
+    elseif b <: AbstractFixedSizeVector
         full_length(b), true
-    elseif c <: AbstractFixedSizePaddedVector
+    elseif c <: AbstractFixedSizeVector
         full_length(c), true
     elseif a != T
         :(length(a)), true
@@ -228,9 +228,9 @@ function ITPExpectedValue_quote(
 end
 
 @generated function ITPExpectedValue(
-            τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
-            β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-            κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T}
+            τ::Union{<:PaddedMatrices.AbstractFixedSizeVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+            β::PaddedMatrices.AbstractFixedSizeVector{N,T},
+            κ::PaddedMatrices.AbstractFixedSizeVector{N,T}
         ) where {R,N,T}
     if isa(R, AbstractRange)
         M = length(R)
@@ -238,14 +238,14 @@ end
         M = R
     end
     quote
-        μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
+        μ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)
         $(ITPExpectedValue_quote(M, N, T, (false, false), false, false, M))
     end
 end
 @generated function ∂ITPExpectedValue(
-            τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
-            β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-            κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+            τ::Union{<:PaddedMatrices.AbstractFixedSizeVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+            β::PaddedMatrices.AbstractFixedSizeVector{N,T},
+            κ::PaddedMatrices.AbstractFixedSizeVector{N,T},
             ::Val{track}
         ) where {R,N,T,track}
     if isa(R, AbstractRange)
@@ -255,22 +255,22 @@ end
     end
     (track_β, track_κ) = track
     q = quote
-        μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
+        μ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)
     end
     if track_β
-        push!(q.args, :(∂β = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)))
+        push!(q.args, :(∂β = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)))
     end
     if track_κ
-        push!(q.args, :(∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T,$N}(undef)))
+        push!(q.args, :(∂κ = MutableFixedSizeMatrix{$M,$N,$T,$N}(undef)))
     end
     push!(q.args, ITPExpectedValue_quote(M, N, T, track, true,false,M))
     q
 end
 @generated function ITPExpectedValue(
-            τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
-            β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-            κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-            θ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T}
+            τ::Union{<:PaddedMatrices.AbstractFixedSizeVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+            β::PaddedMatrices.AbstractFixedSizeVector{N,T},
+            κ::PaddedMatrices.AbstractFixedSizeVector{N,T},
+            θ::PaddedMatrices.AbstractFixedSizeVector{N,T}
         # ) where {R,T,N}
         ) where {R,N,T}
     if isa(R, AbstractRange)
@@ -279,15 +279,15 @@ end
         M = R
     end
     quote
-        μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
+        μ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)
         $(ITPExpectedValue_quote(M, N, T, (false, false, false), false,false,M))
     end
 end
 @generated function ∂ITPExpectedValue(
-            τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
-            β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-            κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-            θ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+            τ::Union{<:PaddedMatrices.AbstractFixedSizeVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+            β::PaddedMatrices.AbstractFixedSizeVector{N,T},
+            κ::PaddedMatrices.AbstractFixedSizeVector{N,T},
+            θ::PaddedMatrices.AbstractFixedSizeVector{N,T},
             ::Val{track}
         ) where {R,T,N,track}
         # ) where {R,N,T,track}
@@ -298,22 +298,22 @@ end
     end
     (track_β, track_κ, track_θ) = track
     q = quote
-        μ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)
+        μ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)
     end
     if track_β
-        push!(q.args, :(∂β = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)))
+        push!(q.args, :(∂β = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)))
     end
     if track_κ
-        push!(q.args, :(∂κ = MutableFixedSizePaddedMatrix{$M,$N,$T,$M}(undef)))
+        push!(q.args, :(∂κ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)))
     end
     push!(q.args, ITPExpectedValue_quote(M, N, T, track, true,false,M))
     q
 end
 @generated function ITPExpectedValue(
     sp::StackPointer,
-    τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
-    β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-    κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T}
+    τ::Union{<:PaddedMatrices.AbstractFixedSizeVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+    β::PaddedMatrices.AbstractFixedSizeVector{N,T},
+    κ::PaddedMatrices.AbstractFixedSizeVector{N,T}
 ) where {R,N,T}
     if isa(R, AbstractRange)
         M = length(R)
@@ -327,9 +327,9 @@ end
 end
 @generated function ∂ITPExpectedValue(
     sp::StackPointer,
-    τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
-    β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-    κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    τ::Union{<:PaddedMatrices.AbstractFixedSizeVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+    β::PaddedMatrices.AbstractFixedSizeVector{N,T},
+    κ::PaddedMatrices.AbstractFixedSizeVector{N,T},
     ::Val{track}
 ) where {R,N,T,track}
     if isa(R, AbstractRange)
@@ -352,10 +352,10 @@ end
 end
 @generated function ITPExpectedValue(
     sp::StackPointer,
-    τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
-    β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-    κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-    θ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T}
+    τ::Union{<:PaddedMatrices.AbstractFixedSizeVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+    β::PaddedMatrices.AbstractFixedSizeVector{N,T},
+    κ::PaddedMatrices.AbstractFixedSizeVector{N,T},
+    θ::PaddedMatrices.AbstractFixedSizeVector{N,T}
         # ) where {R,T,N}
 ) where {R,N,T}
     if isa(R, AbstractRange)
@@ -370,10 +370,10 @@ end
 end
 @generated function ∂ITPExpectedValue(
     sp::StackPointer,
-    τ::Union{<:PaddedMatrices.AbstractFixedSizePaddedVector{R},<:StructuredMatrices.StaticUnitRange{R}},
-    β::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-    κ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
-    θ::PaddedMatrices.AbstractFixedSizePaddedVector{N,T},
+    τ::Union{<:PaddedMatrices.AbstractFixedSizeVector{R},<:StructuredMatrices.StaticUnitRange{R}},
+    β::PaddedMatrices.AbstractFixedSizeVector{N,T},
+    κ::PaddedMatrices.AbstractFixedSizeVector{N,T},
+    θ::PaddedMatrices.AbstractFixedSizeVector{N,T},
     ::Val{track}
 ) where {R,T,N,track}
     # ) where {R,N,T,track}
@@ -427,11 +427,11 @@ function HierarchicalCentering_quote(M::Int, @nospecialize(T), μisvec::Bool, σ
             end
         else
             return quote
-                xout = MutableFixedSizePaddedVector{$M,$T}(undef)
+                xout = MutableFixedSizeVector{$M,$T}(undef)
                 @vvectorize $T for m ∈ 1:$M
                     xout[m] = $μsym + $σsym * y[m]
                 end
-                ConstantFixedSizePaddedVector(xout)
+                ConstantFixedSizeVector(xout)
             end
         end
     end
@@ -443,8 +443,8 @@ function HierarchicalCentering_quote(M::Int, @nospecialize(T), μisvec::Bool, σ
         end
         return_expr = Expr(:tuple, :xout )
     else
-        q = quote xout = MutableFixedSizePaddedVector{$M,$T}(undef) end
-        return_expr = Expr(:tuple, :(ConstantFixedSizePaddedVector(xout)) )
+        q = quote xout = MutableFixedSizeVector{$M,$T}(undef) end
+        return_expr = Expr(:tuple, :(ConstantFixedSizeVector(xout)) )
     end
     loop_body = quote xout[m] = $μsym + $σsym * y[m] end
     if track_y
@@ -549,7 +549,7 @@ function HierarchicalCentering_quote(
         for p ∈ M+1:P
             push!(outtup.args, zero(T))
         end
-        push!(q.args, :(xout = ConstantFixedSizePaddedVector{$M,$T,$P}($outtup) ))
+        push!(q.args, :(xout = ConstantFixedSizeVector{$M,$T,$P}($outtup) ))
     end
     return_expr = Expr(:tuple, :xout )
     if track_y
@@ -558,7 +558,7 @@ function HierarchicalCentering_quote(
                 for p ∈ M+1:P
                     push!(∂yexpr.args, zero(T))
                 end
-                push!(q.args, :( ∂y = ConstantFixedSizePaddedVector{$M,$T,$P}($∂yexpr) ))
+                push!(q.args, :( ∂y = ConstantFixedSizeVector{$M,$T,$P}($∂yexpr) ))
             end
             push!(return_expr.args, :(LinearAlgebra.Diagonal(∂y)) )
         else
@@ -580,42 +580,42 @@ function HierarchicalCentering_quote(
 end
 
 @generated function HierarchicalCentering(
-            #x::AbstractFixedSizePaddedVector{M,T},
-            y::AbstractFixedSizePaddedVector{M,T},
-            μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
-            σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}}
+            #x::AbstractFixedSizeVector{M,T},
+            y::AbstractFixedSizeVector{M,T},
+            μ::Union{T, <: AbstractFixedSizeVector{M,T}},
+            σ::Union{T, <: AbstractFixedSizeVector{M,T}}
         ) where {M,T}
         # ) where {T,M}
 
-    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, (false,false,false), false, false)
+    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizeVector, σ <: AbstractFixedSizeVector, (false,false,false), false, false)
 end
 
 @generated function ∂HierarchicalCentering(
-            #x::AbstractFixedSizePaddedVector{M,T},
-            y::AbstractFixedSizePaddedVector{M,T},
-            μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
-            σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
+            #x::AbstractFixedSizeVector{M,T},
+            y::AbstractFixedSizeVector{M,T},
+            μ::Union{T, <: AbstractFixedSizeVector{M,T}},
+            σ::Union{T, <: AbstractFixedSizeVector{M,T}},
             ::Val{track}
         # ) where {T,M,track}
         ) where {M,T,track}
 
-    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, track, true, false)
+    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizeVector, σ <: AbstractFixedSizeVector, track, true, false)
 end
 
 @generated function HierarchicalCentering(
-            #x::AbstractFixedSizePaddedVector{M,T},
-            y::AbstractFixedSizePaddedVector{M,T,P},
-            μ::AbstractFixedSizePaddedVector{N,T},
-            σ::AbstractFixedSizePaddedVector{N,T},
+            #x::AbstractFixedSizeVector{M,T},
+            y::AbstractFixedSizeVector{M,T,P},
+            μ::AbstractFixedSizeVector{N,T},
+            σ::AbstractFixedSizeVector{N,T},
             ::Domains{S}
         ) where {M,N,T,P,S}
     @assert length(S) == N
     HierarchicalCentering_quote(M, P, T, true, true, S, (false,false,false),false)
 end
 @generated function HierarchicalCentering(
-            #x::AbstractFixedSizePaddedVector{M,T},
-            y::AbstractFixedSizePaddedVector{M,T,P},
-            μ::AbstractFixedSizePaddedVector{N,T},
+            #x::AbstractFixedSizeVector{M,T},
+            y::AbstractFixedSizeVector{M,T,P},
+            μ::AbstractFixedSizeVector{N,T},
             σ::T,
             ::Domains{S}
         ) where {M,N,T,P,S}
@@ -623,20 +623,20 @@ end
     HierarchicalCentering_quote(M, P, T, true, false, S, (false,false,false),false)
 end
 @generated function HierarchicalCentering(
-            #x::AbstractFixedSizePaddedVector{M,T},
-            y::AbstractFixedSizePaddedVector{M,T,P},
+            #x::AbstractFixedSizeVector{M,T},
+            y::AbstractFixedSizeVector{M,T,P},
             μ::T,
-            σ::AbstractFixedSizePaddedVector{N,T},
+            σ::AbstractFixedSizeVector{N,T},
             ::Domains{S}
         ) where {M,N,T,P,S}
     @assert length(S) == N
     HierarchicalCentering_quote(M, P, T, false, true, S, (false,false,false),false)
 end
 @generated function ∂HierarchicalCentering(
-            #x::AbstractFixedSizePaddedVector{M,T},
-            y::AbstractFixedSizePaddedVector{M,T,P},
-            μ::AbstractFixedSizePaddedVector{N,T},
-            σ::AbstractFixedSizePaddedVector{N,T},
+            #x::AbstractFixedSizeVector{M,T},
+            y::AbstractFixedSizeVector{M,T,P},
+            μ::AbstractFixedSizeVector{N,T},
+            σ::AbstractFixedSizeVector{N,T},
             ::Domains{S}, ::Val{track}
         ) where {M,N,S,T,track,P}
         # ) where {M,N,T,S,track,P}
@@ -644,9 +644,9 @@ end
     HierarchicalCentering_quote(M, P, T, true, true, S, track,false)
 end
 @generated function ∂HierarchicalCentering(
-            #x::AbstractFixedSizePaddedVector{M,T},
-            y::AbstractFixedSizePaddedVector{M,T,P},
-            μ::AbstractFixedSizePaddedVector{N,T},
+            #x::AbstractFixedSizeVector{M,T},
+            y::AbstractFixedSizeVector{M,T,P},
+            μ::AbstractFixedSizeVector{N,T},
             σ::T,
             ::Domains{S}, ::Val{track}
         ) where {M,N,T,S,track,P}
@@ -654,10 +654,10 @@ end
     HierarchicalCentering_quote(M, P, T, true, false, S, track,false)
 end
 @generated function ∂HierarchicalCentering(
-            #x::AbstractFixedSizePaddedVector{M,T},
-            y::AbstractFixedSizePaddedVector{M,T,P},
+            #x::AbstractFixedSizeVector{M,T},
+            y::AbstractFixedSizeVector{M,T,P},
             μ::T,
-            σ::AbstractFixedSizePaddedVector{N,T},
+            σ::AbstractFixedSizeVector{N,T},
             ::Domains{S}, ::Val{track}
         ) where {M,N,T,S,track,P}
     @assert length(S) == N
@@ -667,30 +667,30 @@ end
 
 @generated function HierarchicalCentering(
     sp::StackPointer,
-    y::AbstractFixedSizePaddedVector{M,T},
-    μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
-    σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}}
+    y::AbstractFixedSizeVector{M,T},
+    μ::Union{T, <: AbstractFixedSizeVector{M,T}},
+    σ::Union{T, <: AbstractFixedSizeVector{M,T}}
 ) where {M,T}
     # ) where {T,M}
-    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, (false,false,false), false, true)
+    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizeVector, σ <: AbstractFixedSizeVector, (false,false,false), false, true)
 end
 
 @generated function ∂HierarchicalCentering(
     sp::StackPointer,
-    y::AbstractFixedSizePaddedVector{M,T},
-    μ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
-    σ::Union{T, <: AbstractFixedSizePaddedVector{M,T}},
+    y::AbstractFixedSizeVector{M,T},
+    μ::Union{T, <: AbstractFixedSizeVector{M,T}},
+    σ::Union{T, <: AbstractFixedSizeVector{M,T}},
     ::Val{track}
     # ) where {T,M,track}
 ) where {M,T,track}
-    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizePaddedVector, σ <: AbstractFixedSizePaddedVector, track, true, true)
+    HierarchicalCentering_quote(M, T, μ <: AbstractFixedSizeVector, σ <: AbstractFixedSizeVector, track, true, true)
 end
 
 @generated function HierarchicalCentering(
     sp::StackPointer,
-    y::AbstractFixedSizePaddedVector{M,T,P},
-    μ::AbstractFixedSizePaddedVector{N,T},
-    σ::AbstractFixedSizePaddedVector{N,T},
+    y::AbstractFixedSizeVector{M,T,P},
+    μ::AbstractFixedSizeVector{N,T},
+    σ::AbstractFixedSizeVector{N,T},
     ::Domains{S}
 ) where {M,N,T,P,S}
     @assert length(S) == N
@@ -698,8 +698,8 @@ end
 end
 @generated function HierarchicalCentering(
     sp::StackPointer,
-    y::AbstractFixedSizePaddedVector{M,T,P},
-    μ::AbstractFixedSizePaddedVector{N,T},
+    y::AbstractFixedSizeVector{M,T,P},
+    μ::AbstractFixedSizeVector{N,T},
     σ::T,
     ::Domains{S}
 ) where {M,N,T,P,S}
@@ -708,9 +708,9 @@ end
 end
 @generated function HierarchicalCentering(
     sp::StackPointer,
-    y::AbstractFixedSizePaddedVector{M,T,P},
+    y::AbstractFixedSizeVector{M,T,P},
     μ::T,
-    σ::AbstractFixedSizePaddedVector{N,T},
+    σ::AbstractFixedSizeVector{N,T},
     ::Domains{S}
 ) where {M,N,T,P,S}
     @assert length(S) == N
@@ -718,9 +718,9 @@ end
 end
 @generated function ∂HierarchicalCentering(
     sp::StackPointer,
-    y::AbstractFixedSizePaddedVector{M,T,P},
-    μ::AbstractFixedSizePaddedVector{N,T},
-    σ::AbstractFixedSizePaddedVector{N,T},
+    y::AbstractFixedSizeVector{M,T,P},
+    μ::AbstractFixedSizeVector{N,T},
+    σ::AbstractFixedSizeVector{N,T},
     ::Domains{S}, ::Val{track}
 ) where {M,N,S,T,track,P}
     # ) where {M,N,T,S,track,P}
@@ -729,8 +729,8 @@ end
 end
 @generated function ∂HierarchicalCentering(
     sp::StackPointer,
-    y::AbstractFixedSizePaddedVector{M,T,P},
-    μ::AbstractFixedSizePaddedVector{N,T},
+    y::AbstractFixedSizeVector{M,T,P},
+    μ::AbstractFixedSizeVector{N,T},
     σ::T,
     ::Domains{S}, ::Val{track}
 ) where {M,N,T,S,track,P}
@@ -739,9 +739,9 @@ end
 end
 @generated function ∂HierarchicalCentering(
     sp::StackPointer,
-    y::AbstractFixedSizePaddedVector{M,T,P},
+    y::AbstractFixedSizeVector{M,T,P},
     μ::T,
-    σ::AbstractFixedSizePaddedVector{N,T},
+    σ::AbstractFixedSizeVector{N,T},
     ::Domains{S}, ::Val{track}
 ) where {M,N,T,S,track,P}
     @assert length(S) == N
@@ -752,10 +752,10 @@ end
 #@support_stack_pointer ∂HierarchicalCentering
 
 struct ReshapeAdjoint{S} end
-function ∂vec(a::AbstractMutableFixedSizePaddedArray{S}) where {S}
+function ∂vec(a::AbstractMutableFixedSizeArray{S}) where {S}
     vec(a), ReshapeAdjoint{S}()
 end
-function Base.:*(A::AbstractMutableFixedSizePaddedArray, ::ReshapeAdjoint{S}) where S
+function Base.:*(A::AbstractMutableFixedSizeArray, ::ReshapeAdjoint{S}) where S
     reshape(A, Val{S}())
 end
 
