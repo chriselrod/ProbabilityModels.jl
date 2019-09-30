@@ -11,14 +11,15 @@ using   MacroTools, DiffRules, Parameters,
 using VectorizedRNG: AbstractPCG, PtrPCG
 using LoopVectorization: @vvectorize
 using FunctionWrappers: FunctionWrapper
-import MacroTools: postwalk, prewalk, @capture, @q
+using MacroTools: postwalk, prewalk, @capture, @q
 import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED_RESERVED,
     RESERVED_MULTIPLY_SEED_RESERVED, RESERVED_NMULTIPLY_SEED_RESERVED,
     AbstractFixedSizeVector, AbstractMutableFixedSizeVector,
     AbstractMutableFixedSizeArray
 import QuasiNewtonMethods: AbstractProbabilityModel, logdensity, logdensity_and_gradient!, dimension
+import DistributionParameters: parameter_names
 
-export @model#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
+export @model, logdensity, logdensity_and_gradient, logdensity_and_gradient!, parameter_names#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
 
 # function logdensity_and_gradient! end
 

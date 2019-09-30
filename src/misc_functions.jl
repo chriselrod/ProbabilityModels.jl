@@ -419,7 +419,7 @@ function HierarchicalCentering_quote(M::Int, @nospecialize(T), μisvec::Bool, σ
     if !partial
         if sp
             return quote
-                xout = PtrVector{$M,$T,$M,$M}(pointer(sp,$T))
+                xout = PtrVector{$M,$T,$M}(pointer(sp,$T))
                 @vvectorize $T for m ∈ 1:$M
                     xout[m] = $μsym + $σsym * y[m]
                 end
@@ -438,7 +438,7 @@ function HierarchicalCentering_quote(M::Int, @nospecialize(T), μisvec::Bool, σ
     # partial is true
     if sp
         q = quote
-            xout = PtrVector{$M,$T,$M,$M}(pointer(sp,$T))
+            xout = PtrVector{$M,$T,$M}(pointer(sp,$T))
             sp += $(sizeof(T)*M)
         end
         return_expr = Expr(:tuple, :xout )
@@ -502,11 +502,11 @@ function HierarchicalCentering_quote(
     @assert μisvec | σisvec
     q = quote end
     if sp
-        push!(q.args, :(xout = PtrVector{$M,$T,$M,$M}(pointer(sp,$T))))
-        push!(q.args, :(sp += $(sizeof(T)*M)))
+        push!(q.args, :(xout = PtrVector{$M,$T,$M}(pointer(sp,$T))))
+        push!(q.args, :(sp += $(VectorizationBase.align(sizeof(T)*M))))
         if track_y && σisvec
-            push!(q.args, :(∂y = PtrVector{$M,$T,$M,$M}(pointer(sp,$T))))
-            push!(q.args, :(sp += $(sizeof(T)*M)))
+            push!(q.args, :(∂y = PtrVector{$M,$T,$M}(pointer(sp,$T))))
+            push!(q.args, :(sp += $(VectorizationBase.align(sizeof(T)*M))))
         end
     else
         outtup = Expr(:tuple,)

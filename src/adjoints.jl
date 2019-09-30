@@ -87,7 +87,7 @@ end
             end
             reduction[n+1] = sₙ
         end
-        sp + $(N*sizeof(T)), reduction'
+        sp + $(VectorizationBase.align(N*sizeof(T))), reduction'
     end
 end
 @generated function PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(
@@ -108,7 +108,7 @@ end
 #            reduction[n+1] = sₙ
             D[n+1] = C[n+1] + sₙ
         end
-        sp + $(sizeof(T)*PC), D'
+        sp + $(VectorizationBase.align(sizeof(T)*PC)), D'
     end
 end
 @generated function Base.:*(a::LinearAlgebra.Adjoint{T,<:AbstractVector{T}}, ::Reducer{S}) where {T,S}
@@ -168,7 +168,7 @@ end
         @fastmath @inbounds begin
             $q
         end
-        sp + $(sizeof(T)*N), out'
+        sp + $(VectorizationBase.align(sizeof(T)*N)), out'
     end
 end
 @generated function Base.:*(A::AbstractMatrix{T}, ::Reducer{S}) where {T,S}
