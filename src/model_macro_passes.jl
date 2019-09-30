@@ -65,7 +65,7 @@ function interpolate_globals(expr)::Expr
 end
 
 ssa_sym(i::Int) = Symbol("##SSAValue##$(i)##")
-function ssa_to_sym(expr)::Expr
+function ssa_to_sym(expr)
     postwalk(expr) do ex
         if ex isa Core.SSAValue
             return ssa_sym(ex.id)
@@ -500,7 +500,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     θq_value = quote
         @generated function ProbabilityModels.logdensity(
                     $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
-                    $θ::PtrVector{$Nparam, $T, $Nparam, true},
+                    $θ::PtrVector{$Nparam, $T, $Nparam, false},
                     $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = $stack_pointer_expr
             ) where {$Nparam, $T, $(variable_type_names...)}
 
@@ -513,9 +513,9 @@ function generate_generated_funcs_expressions(model_name, expr)
     end
     θq_valuegradient = quote
         @generated function ProbabilityModels.logdensity_and_gradient!(
-                        $(Symbol("##∂θparameter##m"))::PtrVector{$Nparam, $T, $Nparam, true},
+                        $(Symbol("##∂θparameter##m"))::PtrVector{$Nparam, $T, $Nparam, false},
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
-                        $θ::PtrVector{$Nparam, $T, $Nparam, true},
+                        $θ::PtrVector{$Nparam, $T, $Nparam, false},
                         $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = $stack_pointer_expr
                     ) where {$Nparam, $T, $(variable_type_names...)}
             first_pass = quote end
