@@ -1,4 +1,240 @@
 
+
+using PaddedMatrices, StructuredMatrices, DistributionParameters, LoopVectorization
+using InplaceDHMC, VectorizedRNG
+using Random, SpecialFunctions, MCMCChainSummaries, LinearAlgebra
+using ProbabilityModels, LoopVectorization, SLEEFPirates, SIMDPirates, ProbabilityDistributions, PaddedMatrices
+using ProbabilityModels: HierarchicalCentering, ∂HierarchicalCentering, ITPExpectedValue, ∂ITPExpectedValue
+using DistributionParameters: CovarianceMatrix, MissingDataVector#, add
+using PaddedMatrices: vexp
+BLAS.set_num_threads(1)
+
+@model ITPModel begin
+    # Non-hierarchical Priors
+    ρ ~ Beta(3, 1)
+    lκ ~ lsgg(8.5, 1.5, 3.0, 1.5271796258079011) # μ = 1, σ² = 10
+    σ ~ Gamma(1.5, 0.25) # μ = 6, σ² = 2.4
+    θ ~ Normal(10)
+    L ~ LKJ(2.0)
+    # Hierarchical Priors.
+    # h subscript, for highest in the hierarhcy.
+    μₕ₁ ~ Normal(10) # μ = 0
+    μₕ₂ ~ Normal(10) # μ = 0
+    σₕ ~ Normal(10) # μ = 0
+    # Raw μs; non-cenetered parameterization
+    μᵣ₁ ~ Normal() # μ = 0, σ = 1
+    μᵣ₂ ~ Normal() # μ = 0, σ = 1
+    # Center the μs
+    μᵦ₁ = HierarchicalCentering(μᵣ₁, μₕ₁, σₕ)
+    μᵦ₂ = HierarchicalCentering(μᵣ₂, μₕ₂, σₕ)
+    σᵦ ~ Normal(10) # μ = 0
+    # Raw βs; non-cenetered parameterization
+    βᵣ₁ ~ Normal()
+    βᵣ₂ ~ Normal()
+    # Center the βs.
+    β₁ = HierarchicalCentering(βᵣ₁, μᵦ₁, σᵦ, domains)
+    β₂ = HierarchicalCentering(βᵣ₂, μᵦ₂, σᵦ, domains)
+    # Likelihood
+    κ = vexp(lκ)
+    μ₁ = vec(ITPExpectedValue(time, β₁, κ, θ))
+    μ₂ = vec(ITPExpectedValue(time, β₂, κ, θ))
+    Σ = CovarianceMatrix(ρ, Diagonal(σ) * L, time)
+    # Tuple (Y₁, Y₂)
+    (Y₁, Y₂) ~ Normal((μ₁, μ₂)[AvailableData], Σ[AvailableData])
+end
+
+
+function rinvscaledgamma(::Val{N},a::T,b::T,c::T) where {N,T}
+    rg = MutableFixedSizeVector{N,T}(undef)
+    log100 = log(100)
+    @inbounds for n ∈ 1:N
+        rg[n] = log100 / exp(log(VectorizedRNG.randgamma(a/c)) / c + b)
+    end
+    rg
+end
+
+const domains = ProbabilityModels.Domains(2,2,3)
+
+const n_endpoints = sum(domains)
+
+const times = MutableFixedSizeVector{36,Float64,36}(undef); times .= 0:35;
+
+structured_missing_pattern = push!(vcat(([1,0,0,0,0] for i ∈ 1:7)...), 1);
+missing_pattern = vcat(
+    structured_missing_pattern, fill(1, 4length(times)), structured_missing_pattern, structured_missing_pattern
+);
+
+const availabledata = MissingDataVector{Float64}(missing_pattern);
+
+const κ₀ = (8.5, 1.5, 3.0)
+
+AR1(ρ, t) = @. ρ ^ abs(t - t')
+
+
+function generate_true_parameters(domains, times, κ₀)
+    K = sum(domains)
+    D = length(domains)
+    T = length(times)
+    μ = MutableFixedSizeVector{K,Float64}(undef)
+    offset = 0
+    for i ∈ domains
+        domain_mean = 5randn()
+        for j ∈ 1+offset:i+offset
+            μ[j] = domain_mean + 5randn()
+        end
+        offset += i
+    end
+    σ = VectorizedRNG.randgamma( 6.0, 1/6.0)
+    ρ = VectorizedRNG.randbeta(4.0,4.0)
+    κ = rinvscaledgamma(Val(K), κ₀...)
+    lt = last(times)
+    β = MutableFixedSizeVector{7,Float64,7}(( 0.0625,  0.0575,  0.0525,  0.0475,  0.0425,  0.04,  0.0375))
+    θ₁ = @. μ' - β' * ( 1.0 - exp( - κ' * times) ) / (1.0 - exp( - κ' * lt) ) 
+    θ₂ = @. μ' + β' * ( 1.0 - exp( - κ' * times) ) / (1.0 - exp( - κ' * lt) ) 
+    
+    L_T, info = LAPACK.potrf!('L', AR1(ρ, times))
+    @inbounds for tc ∈ 2:T, tr ∈ 1:tc-1
+        L_T[tr,tc] = 0.0
+    end
+    X = PaddedMatrices.MutableFixedSizeMatrix{K,K+3,Float64,K}(undef); randn!(X)
+    U_K, info = LAPACK.potrf!('U', BLAS.syrk!('U', 'N', σ, X, 0.0, zero(MutableFixedSizeMatrix{K,K,Float64,K})))
+    (
+        U_K = U_K, L_T = L_T, μ = μ, θ₁ = θ₁, θ₂ = θ₂, domains = domains, time = times
+    )
+end
+
+@generated function randomize!(
+    sp::PaddedMatrices.StackPointer,
+    A::AbstractArray{T,P},
+    B::PaddedMatrices.AbstractMutableFixedSizeMatrix{M,M,T},
+    C::PaddedMatrices.AbstractMutableFixedSizeMatrix{N,N,T},
+    D::PaddedMatrices.AbstractMutableFixedSizeMatrix{M,N,T}
+) where {M,N,T,P}
+    quote
+        @boundscheck begin
+            d = size(A,1)
+            for p ∈ 2:$(P-1)
+                d *= size(A,p)
+            end
+            d == M*N || PaddedMatrices.ThrowBoundsError("Earlier dims size(A) == $(size(A)) does not match size(D) == ($M,$N)")
+        end
+        ptr = pointer(sp, $T)
+        E = PtrMatrix{$M,$N,$T,$M}( ptr )
+        F = PtrMatrix{$M,$N,$T,$M}( ptr + $(sizeof(T) * M * N) )
+        ptr_A = pointer(A)
+        GC.@preserve A begin
+            for n ∈ 0:size(A,$P)-1
+                Aₙ = PtrMatrix{$M,$N,$T,$M}( ptr_A + n*$(sizeof(T)*M*N) )
+                randn!(ProbabilityModels.GLOBAL_PCGs[1], E)
+                mul!(F, B, E)
+                Aₙ .= D
+                PaddedMatrices.gemm!(Aₙ, F, C)
+            end
+        end
+        sp
+    end
+end
+
+sample_data( N, truth, missingness, missingvals = (Val{0}(),Val{0}()) ) = sample_data( N, truth, missingness, missingvals, truth.domains )
+@generated function sample_data(
+    N::Tuple{Int,Int},
+	truth, missingness,
+	::Tuple{Val{M1},Val{M2}},
+	::ProbabilityModels.Domains{S}
+) where {S,M1,M2}
+    K = sum(S)
+    D = length(S)
+    quote
+        N₁, N₂ = N
+        L_T = truth.L_T
+        U_K = truth.U_K
+        T = size(L_T,1)
+
+        sp = ProbabilityModels.STACK_POINTER_REF[]
+        (sp,Y₁) = PaddedMatrices.DynamicPtrArray{Float64,3}(sp, (T, $K, N₁), T)
+        (sp,Y₂) = PaddedMatrices.DynamicPtrArray{Float64,3}(sp, (T, $K, N₂), T)
+        randomize!(sp, Y₁, L_T, U_K, truth.θ₁)
+        randomize!(sp, Y₂, L_T, U_K, truth.θ₂)
+        
+        c = length(missingness.indices)
+        inds = missingness.indices
+        
+        Y₁sub = reshape(Y₁, (T * $K, N₁))[inds, :]
+        $(M1 > 0 ? quote
+            Y₁union = Array{Union{Missing,Float64}}(Y₁sub)
+            perm = randperm(length(Y₁sub))
+            @inbounds for m in 1:$M1
+                Y₁union[perm[m]] = Base.missing
+	    	end
+    		Y₁ = convert(MissingDataArray{$M1,Bounds(-Inf,Inf)}, Y₁union)
+		end : quote
+			Y₁ = Y₁sub
+		end)
+
+        Y₂sub = reshape(Y₂, (T * $K, N₂))[inds, :]
+		$(M2 > 0 ? quote
+            Y₂union = Array{Union{Missing,Float64}}(Y₂sub)
+            perm = randperm(length(Y₂sub))
+			@inbounds for m in 1:$M2
+                Y₂union[perm[m]] = Base.missing
+            end
+            Y₂ = convert(MissingDataArray{$M2,Bounds(-Inf,Inf)},Y₂union)
+		end : quote
+		    Y₂ = Y₂sub
+		end)
+		
+        ITPModel(
+            domains = truth.domains,
+	        AvailableData = missingness,
+            Y₁ = Y₁,
+            Y₂ = Y₂,
+            time = truth.time,
+            L = LKJCorrCholesky{$K},
+            ρ = RealVector{$K,Bounds(0,1)},
+            lκ = RealVector{$K},
+            θ = RealVector{$K},
+            μₕ₁ = RealFloat,
+            μₕ₂ = RealFloat,
+            μᵣ₁ = RealVector{$D},
+            μᵣ₂ = RealVector{$D},
+            βᵣ₁ = RealVector{$K},
+            βᵣ₂ = RealVector{$K},
+            σᵦ = RealFloat{Bounds(0,Inf)},
+            σₕ = RealFloat{Bounds(0,Inf)},
+            σ = RealVector{$K,Bounds(0,Inf)}
+        )
+    end
+end
+
+
+truth = generate_true_parameters(domains, times, κ₀);
+
+data = sample_data((100,100), truth, availabledata);
+# mdata = sample_data((100,100), truth, availabledata, ((Val(10),Val(9))));
+
+
+a = randn(length(data)); g = similar(a);
+
+@time logdensity(data, a)
+@time logdensity_and_gradient(data, a)
+
+
+@time ProbabilityModels.check_gradient(data, a)
+
+
+using BenchmarkTools
+
+@benchmark logdensity($data, $a)
+@benchmark logdensity_and_gradient!($g, $data, $a)
+
+
+
+pg = PtrVector{73,Float64,73}(pointer(g));
+pa = PtrVector{73,Float64,73}(pointer(a));
+@code_warntype logdensity_and_gradient!(pg, data, pa, ProbabilityModels.STACK_POINTER_REF[])
+
+
+
 using MacroTools, PaddedMatrices, DiffRules, VectorizationBase, SLEEFPirates
 using MacroTools: striplines, @capture, prewalk, postwalk, @q
 

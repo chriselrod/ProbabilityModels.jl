@@ -18,8 +18,9 @@ import PaddedMatrices: RESERVED_INCREMENT_SEED_RESERVED, RESERVED_DECREMENT_SEED
     AbstractMutableFixedSizeArray
 import QuasiNewtonMethods: AbstractProbabilityModel, logdensity, logdensity_and_gradient!, dimension
 import DistributionParameters: parameter_names
+import MCMCChainSummaries: MCMCChainSummary
 
-export @model, logdensity, logdensity_and_gradient, logdensity_and_gradient!, parameter_names#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
+export @model, logdensity, logdensity_and_gradient, logdensity_and_gradient!, MCMCChainSummaries#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
 
 # function logdensity_and_gradient! end
 
@@ -120,9 +121,8 @@ include("misc_functions.jl")
 include("special_diff_rules.jl")
 include("reverse_autodiff_passes.jl")
 include("model_macro_passes.jl")
-# include("mcmc_chains.jl")
+include("mcmc_chains.jl")
 include("rng.jl")
-# include("dynamic_hmc_interface.jl")
 
 @def_stackpointer_fallback emax_dose_response ITPExpectedValue ∂ITPExpectedValue HierarchicalCentering ∂HierarchicalCentering
 function __init__()

@@ -1,5 +1,11 @@
 # This file is machine-generated - editing it directly is not advised
 
+[[AbstractFFTs]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "380e36c66edfa099cd90116b24c1ce8cafccac40"
+uuid = "621f4979-c628-5d54-868e-fcf4e3e8185c"
+version = "0.4.1"
+
 [[Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
@@ -27,17 +33,39 @@ git-tree-sha1 = "84aa74986c5b9b898b0d1acaf3258741ee64754f"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
 version = "2.1.0"
 
+[[Conda]]
+deps = ["JSON", "VersionParsing"]
+git-tree-sha1 = "9a11d428dcdc425072af4aea19ab1e8c3e01c032"
+uuid = "8f4d0f93-b110-5947-807f-2305c1781a2d"
+version = "1.3.0"
+
 [[CpuId]]
 deps = ["Markdown", "Test"]
 git-tree-sha1 = "f0464e499ab9973b43c20f8216d088b61fda80c6"
 uuid = "adafc99b-e345-5852-983c-f28acb93d879"
 version = "0.2.2"
 
+[[Crayons]]
+deps = ["Test"]
+git-tree-sha1 = "f621b8ef51fd2004c7cf157ea47f027fdeac5523"
+uuid = "a8cc5b0e-0ffa-5ad4-8c14-923d3ee1735f"
+version = "4.0.0"
+
+[[DataAPI]]
+git-tree-sha1 = "8903f0219d3472543fc4b2f5ebaf675a07f817c0"
+uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
+version = "1.0.1"
+
 [[DataStructures]]
 deps = ["InteractiveUtils", "OrderedCollections"]
 git-tree-sha1 = "0809951a1774dc724da22d26e4289bbaab77809a"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 version = "0.17.0"
+
+[[DataValueInterfaces]]
+git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
+uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
+version = "1.0.0"
 
 [[Dates]]
 deps = ["Printf"]
@@ -63,6 +91,18 @@ path = "/home/chriselrod/.julia/dev/DistributionParameters"
 uuid = "c01b26ed-ce4c-5898-8a3a-ab63e1ee7b47"
 version = "0.1.0"
 
+[[FFTW]]
+deps = ["AbstractFFTs", "BinaryProvider", "Conda", "Libdl", "LinearAlgebra", "Reexport", "Test"]
+git-tree-sha1 = "6c5b420da0b8c12098048561b8d58f81adea506f"
+uuid = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
+version = "1.0.1"
+
+[[Formatting]]
+deps = ["Printf"]
+git-tree-sha1 = "a0c901c29c0e7c763342751c0a94211d56c0de5c"
+uuid = "59287772-0a20-5a39-b81b-1366585eb4c0"
+version = "0.4.1"
+
 [[FunctionWrappers]]
 deps = ["Compat"]
 git-tree-sha1 = "49bf793ebd37db5adaa7ac1eae96c2c97ec86db5"
@@ -73,7 +113,19 @@ version = "1.0.0"
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 
+[[IteratorInterfaceExtensions]]
+git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
+uuid = "82899510-4779-5014-852e-03e436cf321d"
+version = "1.0.0"
+
+[[JSON]]
+deps = ["Dates", "Mmap", "Parsers", "Unicode"]
+git-tree-sha1 = "b34d7cef7b337321e97d22242c3c2b91f476748e"
+uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+version = "0.21.0"
+
 [[LibGit2]]
+deps = ["Printf"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 
 [[Libdl]]
@@ -90,6 +142,12 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 deps = ["MacroTools", "SIMDPirates", "SLEEFPirates", "VectorizationBase"]
 path = "/home/chriselrod/.julia/dev/LoopVectorization"
 uuid = "bdcacae8-1622-11e9-2a5c-532679323890"
+version = "0.1.0"
+
+[[MCMCChainSummaries]]
+deps = ["FFTW", "PrettyTables", "SIMDPirates", "Statistics", "VectorizationBase"]
+path = "/home/chriselrod/.julia/dev/MCMCChainSummaries"
+uuid = "4bc3f321-9528-4c7a-aaa1-470f5edc6d51"
 version = "0.1.0"
 
 [[MacroTools]]
@@ -123,9 +181,21 @@ git-tree-sha1 = "b62b2558efb1eef1fa44e4be5ff58a515c287e38"
 uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
 version = "0.12.0"
 
+[[Parsers]]
+deps = ["Dates", "Test"]
+git-tree-sha1 = "ef0af6c8601db18c282d092ccbd2f01f3f0cd70b"
+uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
+version = "0.3.7"
+
 [[Pkg]]
 deps = ["Dates", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "UUIDs"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+
+[[PrettyTables]]
+deps = ["Crayons", "Formatting", "Parameters", "Reexport", "Tables"]
+git-tree-sha1 = "2268242f037e0290e87d55c02060320c1d0d6b03"
+uuid = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
+version = "0.6.0"
 
 [[Printf]]
 deps = ["Unicode"]
@@ -138,7 +208,7 @@ uuid = "3e413219-3d65-5be9-8809-9d8824e993e6"
 version = "0.1.0"
 
 [[QuasiNewtonMethods]]
-deps = ["LinearAlgebra", "LoopVectorization", "PaddedMatrices", "Parameters", "SIMDPirates", "SLEEFPirates", "VectorizationBase", "VectorizedRNG"]
+deps = ["LinearAlgebra", "LoopVectorization", "PaddedMatrices", "Parameters", "SIMDPirates", "SLEEFPirates", "StackPointers", "VectorizationBase", "VectorizedRNG"]
 path = "/home/chriselrod/.julia/dev/QuasiNewtonMethods"
 uuid = "64452400-c6f4-4a1d-a4f6-ad403655768a"
 version = "0.1.0"
@@ -150,6 +220,12 @@ uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 [[Random]]
 deps = ["Serialization"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[[Reexport]]
+deps = ["Pkg"]
+git-tree-sha1 = "7b1d07f411bc8ddb7977ec7f377b97b158514fe0"
+uuid = "189a3867-3050-52da-a836-e630ba90ab69"
+version = "0.2.0"
 
 [[SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -214,6 +290,18 @@ path = "/home/chriselrod/.julia/dev/StructuredMatrices"
 uuid = "831e5bd0-d036-11e8-2dea-c77e7dab29a6"
 version = "0.1.0"
 
+[[TableTraits]]
+deps = ["IteratorInterfaceExtensions"]
+git-tree-sha1 = "b1ad568ba658d8cbb3b892ed5380a6f3e781a81e"
+uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
+version = "1.0.0"
+
+[[Tables]]
+deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "LinearAlgebra", "TableTraits", "Test"]
+git-tree-sha1 = "aaed7b3b00248ff6a794375ad6adf30f30ca5591"
+uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+version = "0.2.11"
+
 [[Test]]
 deps = ["Distributed", "InteractiveUtils", "Logging", "Random"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
@@ -247,3 +335,9 @@ deps = ["Distributed", "Random", "SIMDPirates", "SLEEFPirates", "VectorizationBa
 path = "/home/chriselrod/.julia/dev/VectorizedRNG"
 uuid = "33b4df10-0173-11e9-2a0c-851a7edac40e"
 version = "0.1.0"
+
+[[VersionParsing]]
+deps = ["Compat"]
+git-tree-sha1 = "c9d5aa108588b978bd859554660c8a5c4f2f7669"
+uuid = "81def892-9a0e-5fdd-b105-ffc91e053289"
+version = "1.1.3"
