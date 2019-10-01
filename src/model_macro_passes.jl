@@ -43,6 +43,8 @@ function translate_sampling_statements(expr)::Expr
 #            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
+        elseif @capture(x, identity(a_))
+            return a
         elseif @capture(x, a_:b_)
             if a isa Integer && b isa Integer
                 return :(ProbabilityModels.PaddedMatrices.Static{$a:$b}())
@@ -463,9 +465,20 @@ function generate_generated_funcs_expressions(model_name, expr)
             $(var_vartype_pairs...)
         end
     end
-
+    precomp = gensym(:precompile); tlag = gensym(:tlag); tl = gensym(:tl)
     struct_kwarg_quote = quote
-        function $model_name(; $(var_vartype_pairs...)) where {$(variable_type_names...)}
+        function $model_name{$Nparam}( $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
+            $model_name{$Nparam,$(variable_type_names...)}($(variables...))
+        end
+        function $model_name{$Nparam}($precomp, $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
+            if $precomp && (ProbabilityModels.NTHREADS[] > 1)
+                $tlag = Threads.@spawn precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false}, ProbabilityModels.StackPointer))
+                $tl = Threads.@spawn precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false}, ProbabilityModels.StackPointer))
+                wait($tlag); wait($tl)
+            end
+            $model_name{$Nparam,$(variable_type_names...)}($(variables...))
+        end
+        function $model_name($precomp::Bool = true; $(var_vartype_pairs...)) where {$(variable_type_names...)}
             $Nparam = 0
             # @show $(variables...)
             # @show $(variable_type_names...)
@@ -477,10 +490,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                    $Nparam += ProbabilityModels.PaddedMatrices.param_type_length($v)
                 end
             end for v ∈ variables]...)
-            $model_name{$Nparam}($([:(ProbabilityModels.types_to_vals($v)) for v ∈ variables]...))
-        end
-        function $model_name{$Nparam}( $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
-            $model_name{$Nparam,$(variable_type_names...)}($(variables...))
+            $model_name{$Nparam}($precomp, $([:(ProbabilityModels.types_to_vals($v)) for v ∈ variables]...))
         end
     end
     # Translate the sampling statements, and then flatten the expression to remove nesting.
@@ -501,7 +511,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         @generated function ProbabilityModels.logdensity(
                     $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                     $θ::PtrVector{$Nparam, $T, $Nparam, false},
-                    $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = $stack_pointer_expr
+                    $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
             ) where {$Nparam, $T, $(variable_type_names...)}
 
             TLθ = $Nparam
@@ -513,10 +523,10 @@ function generate_generated_funcs_expressions(model_name, expr)
     end
     θq_valuegradient = quote
         @generated function ProbabilityModels.logdensity_and_gradient!(
-                        $(Symbol("##∂θparameter##m"))::PtrVector{$Nparam, $T, $Nparam, false},
+                        $(Symbol("##∂θparameter##m"))::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                         $θ::PtrVector{$Nparam, $T, $Nparam, false},
-                        $(Symbol("##stack_pointer##"))::ProbabilityModels.PaddedMatrices.StackPointer = $stack_pointer_expr
+                        $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
                     ) where {$Nparam, $T, $(variable_type_names...)}
             first_pass = quote end
             TLθ = $Nparam
