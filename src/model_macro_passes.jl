@@ -510,7 +510,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     θq_value = quote
         @generated function ProbabilityModels.logdensity(
                     $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
-                    $θ::PtrVector{$Nparam, $T, $Nparam, false},
+                    $θ::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                     $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
             ) where {$Nparam, $T, $(variable_type_names...)}
 
@@ -525,7 +525,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         @generated function ProbabilityModels.logdensity_and_gradient!(
                         $(Symbol("##∂θparameter##m"))::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
-                        $θ::PtrVector{$Nparam, $T, $Nparam, false},
+                        $θ::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
                     ) where {$Nparam, $T, $(variable_type_names...)}
             first_pass = quote end

@@ -20,7 +20,7 @@ import QuasiNewtonMethods: AbstractProbabilityModel, logdensity, logdensity_and_
 import DistributionParameters: parameter_names
 import MCMCChainSummaries: MCMCChainSummary
 
-export @model, logdensity, logdensity_and_gradient, logdensity_and_gradient!, MCMCChainSummaries#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
+export @model, logdensity, logdensity_and_gradient, logdensity_and_gradient!, MCMCChainSummary#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
 
 # function logdensity_and_gradient! end
 
