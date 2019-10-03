@@ -8,7 +8,7 @@ function noopdiff!(first_pass, second_pass, tracked_vars, out, f, A)
         a ∈ tracked_vars || continue
         track = true
         seeda = Symbol("###seed###", a)
-        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED( $seedout, $seeda )))
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED( $seedout, $seeda )))
     end
     track && push!(tracked_vars, out)
     push!(first_pass.args, :($out = $f($(A...))))
@@ -78,7 +78,7 @@ function reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, verbose
             differentiate!(first_pass, second_pass, tracked_vars, out, f, A, verbose)
         elseif @capture(x, out_ = A_) && isa(A, Symbol)
             push!(first_pass.args, x)
-            pushfirst!(second_pass.args, :( $(Symbol("###seed###", A)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $(Symbol("###seed###", A)) )) )
+            pushfirst!(second_pass.args, :( $(Symbol("###seed###", A)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $(Symbol("###seed###", A)) )) )
             A ∈ tracked_vars && push!(tracked_vars, out)
         elseif @capture(x, if cond_; conditionaleval_; else; alternateeval_ end)
             reverse_diff_ifelse!(first_pass, second_pass, tracked_vars, cond, conditionaleval, alternateeval)
@@ -115,7 +115,7 @@ function apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, diff
         track_out = true
         ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
         push!(first_pass.args, :($∂ = $(diffrules[i])))
-        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $(Symbol("###seed###", a)) )) )
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $(Symbol("###seed###", a)) )) )
     end
     track_out && push!(tracked_vars, out)
     nothing
@@ -130,7 +130,7 @@ function apply_diff_rule!(first_pass, second_pass, tracked_vars, out, f, A, diff
         track_out = true
         ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
         push!(first_pass.args, :($∂ = $(diffrule)))
-        pushfirst!(second_pass.args, :( $(Symbol("###seed###", A[i])) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $(Symbol("###seed###", A[i])) )) )
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", A[i])) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $(Symbol("###seed###", A[i])) )) )
     end
     track_out && push!(tracked_vars, out)
     nothing
@@ -154,6 +154,10 @@ will be added.
 function differentiate!(first_pass, second_pass, tracked_vars, out, f, A, verbose = false)
 #    @show f, typeof(f), A, (A .∈ Ref(tracked_vars))
 #    @show f, out, A, (A .∈ Ref(tracked_vars))
+    if !any(a -> a ∈ tracked_vars, A)
+        push!(first_pass.args, Expr(:(=), out, Expr(:call, f, A...)))
+        return
+    end
     arity = length(A)
     if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
         ProbabilityDistributions.distribution_diff_rule!(:(ProbabilityDistributions), first_pass, second_pass, tracked_vars, out, A, f, verbose)
@@ -207,7 +211,7 @@ function zygote_diff_rule!(first_pass, second_pass, tracked_vars, out, A, f)
         push!(anon_args.args, ga)
         ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
         push!(adjoints.args, ∂)
-        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $(Symbol("###seed###", a)) )) )
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $(Symbol("###seed###", a)) )) )
     end
     if length(track) > 0
         push!(tracked_vars, out)

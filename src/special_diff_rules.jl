@@ -16,7 +16,7 @@ function exp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(tracked_vars, out)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :($∂ = $out))
-    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
+    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
 SPECIAL_DIFF_RULES[:exp] = SPECIAL_DIFF_RULE(exp_diff_rule!)
@@ -27,7 +27,7 @@ function vexp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(tracked_vars, out)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :($∂ = Diagonal($out)))
-    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
+    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
 SPECIAL_DIFF_RULES[:vexp] = SPECIAL_DIFF_RULE(vexp_diff_rule!)
@@ -38,7 +38,7 @@ function log_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     push!(tracked_vars, out)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :($∂ = inv($a)))
-    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
+    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
 SPECIAL_DIFF_RULES[:log] = SPECIAL_DIFF_RULE(log_diff_rule!)
@@ -50,7 +50,7 @@ function plus_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         a = A[i]
         a ∈ tracked_vars || continue
         track_out = true
-        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($adjout, $(Symbol("###seed###", a)))))
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($adjout, $(Symbol("###seed###", a)))))
     end
     track_out && push!(tracked_vars, out)
     nothing
@@ -65,7 +65,7 @@ function add_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         a = A[i]
         a ∈ tracked_vars || continue
         track_out = true
-        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($adjout, $(Symbol("###seed###", a)))))
+        pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($adjout, $(Symbol("###seed###", a)))))
     end
     track_out && push!(tracked_vars, out)
     nothing
@@ -77,8 +77,8 @@ function minus_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     a₂ = A[2]
     push!(first_pass.args, :($out = $a₁ - $a₂ ))
     adjout = Symbol("###seed###", out)
-    a₁ ∈ tracked_vars && pushfirst!(second_pass.args, :( $(Symbol("###seed###", a₁)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($adjout, $(Symbol("###seed###", a₁)))))
-    a₂ ∈ tracked_vars && pushfirst!(second_pass.args, :( $(Symbol("###seed###", a₂)) = ProbabilityModels.PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED($adjout, $(Symbol("###seed###", a₂)))))
+    a₁ ∈ tracked_vars && pushfirst!(second_pass.args, :( $(Symbol("###seed###", a₁)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($adjout, $(Symbol("###seed###", a₁)))))
+    a₂ ∈ tracked_vars && pushfirst!(second_pass.args, :( $(Symbol("###seed###", a₂)) = ProbabilityModels.RESERVED_DECREMENT_SEED_RESERVED($adjout, $(Symbol("###seed###", a₂)))))
     track_out = (a₁ ∈ tracked_vars) || (a₂ ∈ tracked_vars)
     track_out && push!(tracked_vars, out)
     nothing
@@ -94,7 +94,7 @@ function inv_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     # ∂ = gensym(:∂)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :(($out, $∂) = ProbabilityModels.StructuredMatrices.∂inv($a)))
-    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
+    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
 SPECIAL_DIFF_RULES[:inv] = SPECIAL_DIFF_RULE(inv_diff_rule!)
@@ -108,7 +108,7 @@ function inv′_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
     # ∂ = gensym(:∂)
     ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
     push!(first_pass.args, :(($out, $∂) = ProbabilityModels.StructuredMatrices.∂inv′($a)))
-    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
+    pushfirst!(second_pass.args, :( $(Symbol("###seed###", a)) = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($(Symbol("###seed###", out)), $∂, $(Symbol("###seed###", a)) )))
     nothing
 end
 SPECIAL_DIFF_RULES[:inv′] = SPECIAL_DIFF_RULE(inv′_diff_rule!)
@@ -132,7 +132,7 @@ function mul_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         if a ∈ tracked_vars
             seeda = Symbol("###seed###", a)
             ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
-            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($adjout, $∂, $seeda)))
+            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($adjout, $∂, $seeda)))
             push!(return_expr.args, ∂)
             push!(track_tup.args, true)
         else
@@ -159,7 +159,7 @@ function itp_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
             ∂a = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
             seeda = Symbol("###seed###", a)
             push!(∂tup.args, ∂a)
-            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂a, $seeda )))
+            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂a, $seeda )))
         else
             push!(track_tup.args, false)
         end
@@ -184,7 +184,7 @@ function hierarchical_centering_diff_rule!(first_pass, second_pass, tracked_vars
             ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
             push!(func_output.args, ∂)
             seeda = Symbol("###seed###", a)
-            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
+            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
         end
     end
     push!(first_pass.args, :($func_output = ∂HierarchicalCentering($(A...), Val{$tracked}()) ) )
@@ -202,7 +202,7 @@ function tuple_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
             #∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
             #push!(func_output.args, ∂)
             seeda = Symbol("###seed###", a)
-            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout[$i], $seeda )))
+            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout[$i], $seeda )))
         end
     end
     push!(first_pass.args, :($out = Core.tuple($(A...))))
@@ -218,7 +218,7 @@ function diagonal_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         seeda = Symbol("###seed###", a)
         seedout = Symbol("###seed###", out)
 #        pushfirst!(second_pass.args, :(@show $seeda))
-        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $seeda )))
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $seeda )))
 #        pushfirst!(second_pass.args, :(@show $seedout))
 #        pushfirst!(second_pass.args, :(println("diagonal diff reverse pass")))
     end
@@ -238,7 +238,7 @@ function vec_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         push!(tracked_vars, out)
         seeda = Symbol("###seed###", a)
         seedout = Symbol("###seed###", out)
-        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
         push!(first_pass.args, :(($out,$∂) = ProbabilityModels.∂vec($a)))
     else
         push!(first_pass.args, :($out = vec($a)))
@@ -261,7 +261,7 @@ function reshape_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         push!(tracked_vars, out)
         seeda = Symbol("###seed###", a)
         seedout = Symbol("###seed###", out)
-        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(reshape($seedout, ProbabilityModels.PaddedMatrices.maybe_static_size($a)), $seeda) ))
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED(reshape($seedout, ProbabilityModels.maybe_static_size($a)), $seeda) ))
 #        push!(first_pass.args, :(($out,$∂) = ProbabilityModels.∂vec($a)))
     end
 #    println("out ∈ tracked: $(out ∈ tracked_vars)")
@@ -286,7 +286,7 @@ function cov_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
             ∂ = Symbol("###adjoint###_##∂", out, "##∂", a, "##")
             push!(func_output.args, ∂)
             seeda = Symbol("###seed###", a)
-            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
+            pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
         end
     end
     push!(first_pass.args, :($func_output = ProbabilityModels.DistributionParameters.∂CovarianceMatrix($(A...), Val{$tracked}()) ) )
@@ -304,8 +304,8 @@ function getindex_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         push!(tracked_vars, out)
         seeda = Symbol("###seed###", a)
         seedout = Symbol("###seed###", out)
-        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
-        push!(first_pass.args, :(($out, $∂) = PaddedMatrices.∂getindex($(A...))))
+        pushfirst!(second_pass.args, :( $seeda = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedout, $∂, $seeda )))
+        push!(first_pass.args, :(($out, $∂) = ProbabilityModels.PaddedMatrices.∂getindex($(A...))))
     elseif a isa Expr && a.head == :tuple
         # terrible hack!!!!
         # TODO: DO THIS CORRECTLY
@@ -358,8 +358,8 @@ function rank_update_diff_rule!(first_pass, second_pass, tracked_vars, out, A)
         #$seedchol = reverse_cholesky_grad($out, $seedout) # 
         $ret = StructuredMatrices.∂rank_update($(args...))
     end
-    track_L && push!(q.args, :($seedL = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedLtemp, $seedL)))
-    track_x && push!(q.args, :($seedx = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED($seedxtemp, $seedx)))
+    track_L && push!(q.args, :($seedL = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedLtemp, $seedL)))
+    track_x && push!(q.args, :($seedx = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED($seedxtemp, $seedx)))
     pushfirst!(second_pass.args, q)
     nothing
 end

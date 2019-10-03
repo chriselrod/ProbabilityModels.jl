@@ -24,9 +24,9 @@ function translate_sampling_statements(expr)::Expr
             # @show f, y, θ
             if f0 ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
                 if @capture(x, y_ ~ f_(α_ + X_ * β_ , θ__))
-                    return :(target = vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
+                    return :(target = ProbabilityModels.vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
                 elseif @capture(x, y_ ~ f_(X_ * β_ + α_, θ__))
-                    return :(target = vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
+                    return :(target = ProbabilityModels.vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
                 # elseif @capture(x, y_ ~ f_(α_ - X_ * β_, θ__))
                 #     return :(target = vadd(target, $(Symbol(f,:_fnmadd))($y, $X, $β, $α, $(θ...))))
                 # elseif @capture(x, y_ ~ f_(X_ * β_ - α_, θ__))
@@ -37,34 +37,35 @@ function translate_sampling_statements(expr)::Expr
                 #     return :(target = vadd(target, $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...))))
                 end
             elseif @capture(x, y2_ ~ Normal(X_ * β_, θ2__))
-                return :(target = vadd(target, Normal($y2, $X, $β, $(θ2...))))
+                return :(target = ProbabilityModels.vadd(target, Normal($y2, $X, $β, $(θ2...))))
             end
-            return :(target = vadd(target, $f0($y0, $(θ0...))))
+            return :(target = ProbabilityModels.vadd(target, $f0($y0, $(θ0...))))
 #            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
         elseif @capture(x, identity(a_))
             return a
-        elseif @capture(x, a_:b_)
-            if a isa Integer && b isa Integer
-                return :(ProbabilityModels.PaddedMatrices.Static{$a:$b}())
-            else
-                return x
-            end
+        # elseif @capture(x, a_:b_)
+        #     if a isa Integer && b isa Integer
+        #         return :(ProbabilityModels.PaddedMatrices.Static{($a,$b)}())
+        #     else
+        #         return x
+        #     end
         else
             return x
         end
     end
 end
-function interpolate_globals(expr)::Expr
-    postwalk(expr) do x
-        if x isa Expr && x.head == :$
-            return eval(first(x.args))
-        else
-            return x
-        end
-    end
-end
+# This does not work, because eval only looks in the current module, and doesn't accept a module argument (ie, Main)
+# function interpolate_globals(expr)::Expr
+#     postwalk(expr) do x
+#         if x isa Expr && x.head == :$
+#             return eval(first(x.args))
+#         else
+#             return x
+#         end
+#     end
+# end
 
 ssa_sym(i::Int) = Symbol("##SSAValue##$(i)##")
 function ssa_to_sym(expr)
@@ -80,18 +81,33 @@ function ssa_to_sym(expr)
 end
 function flatten_expression(expr)::Expr
     lowered_array = Meta.lower(ProbabilityModels, expr).args
+    substitutions = Dict{Symbol,Expr}()
+    assignments = Dict{Symbol,Symbol}()
     @assert length(lowered_array) == 1
     lowered = first(lowered_array).code
     q = quote end
     for i ∈ 1:length(lowered) - 1 # skip return statement
         ex = lowered[i]
-        if @capture(ex, a_ = b_)
-            push!(q.args, :($a = $(ssa_to_sym(b))))
+        # @show ex
+        if ex isa Expr && ex.head == :call && ex.args[1] isa GlobalRef && ex.args[1].name == :getproperty # @capture(ex, Base.getproperty(M_, s_))
+            substitutions[ssa_sym(i)] = Expr(:., ex.args[2], ex.args[3])
+        elseif @capture(ex, a_ = b_)
+            # push!(q.args, :($a = $(ssa_to_sym(b))))
+            assignments[ssa_to_sym(b)] = a
+        elseif @capture(ex, a_:b_) && a isa Integer && b isa Integer
+            push!(q.args, :($(ssa_sym(i)) = ProbabilityModels.PaddedMatrices.Static{($a,$b)}()))
         else # assigns to ssa value
-            push!(q.args, :($(ssa_sym(i)) = $(ssa_to_sym(ex))))
+            ex = postwalk(ex) do x
+                y = ssa_to_sym(x)
+                get(substitutions, y, y)
+            end
+            push!(q.args, :($(ssa_sym(i)) = $ex))# $(ssa_to_sym(ex))))
         end
     end
-#    println(q)
+    q = postwalk(q) do ex
+        get(assignments, ex, ex)
+    end
+    # println(q)
     q
 end
 
@@ -240,16 +256,16 @@ function first_updates_to_assignemnts(expr, variables_input)::Expr
             end
             # @show lhs, new_assignment, check
             if check
-                if @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(b__, a_) )
-                    expr.args[i] = :($a = ProbabilityModels.PaddedMatrices.RESERVED_MULTIPLY_SEED_RESERVED($(b...)))
-                elseif @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED(b__, a_) )
-                    expr.args[i] = :($a = ProbabilityModels.PaddedMatrices.RESERVED_NMULTIPLY_SEED_RESERVED($(b...)))
+                if @capture(ex, a_ = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED(b__, a_) )
+                    expr.args[i] = :($a = ProbabilityModels.RESERVED_MULTIPLY_SEED_RESERVED($(b...)))
+                elseif @capture(ex, a_ = ProbabilityModels.RESERVED_DECREMENT_SEED_RESERVED(b__, a_) )
+                    expr.args[i] = :($a = ProbabilityModels.RESERVED_NMULTIPLY_SEED_RESERVED($(b...)))
                 elseif @capture(ex, a_ = a_ + b__ ) || @capture(ex, a_ = b__ + a_ ) || @capture(ex, a_ = Base.FastMath.add_fast(a_, b__)) || @capture(ex, a_ = Base.FastMath.add_fast(b__, a_))# || @capture(ex, a_ = b__ )
                     expr.args[i] = :($a = $(b...))
                 elseif @capture(ex, a_ = a_ - b__ )
                     expr.args[i] = :($a = -1 * $(b...))
-                elseif @capture(ex, a_ = SIMDPirates.vifelse(b_, LoopVectorization.SIMDPirates.vadd(a_, c_), a_))
-                    expr.args[i] = :($a = SIMDPirates.vifelse($b, $c, 0.0))
+                elseif @capture(ex, a_ = ProbabilityModels.vifelse(b_, ProbabilityModels.vadd(a_, c_), a_))
+                    expr.args[i] = :($a = ProbabilityModels.vifelse($b, $c, 0.0))
 #                elseif @capture(ex, target = ProbabilityModels.DistributionParameters.add(a_, b_) )
 #                    expr.args[i] = :( a_ = a_ )
                 else
@@ -325,7 +341,7 @@ function constant_drop_pass!(first_pass, expr, tracked_vars, verbose = false)
                     end
                 end
                 if f == :add
-                    push!(first_pass.args, :( $out = ProbabilityModels.SIMDPirates.vadd($(A...))))
+                    push!(first_pass.args, :( $out = ProbabilityModels.vadd($(A...))))
                 else
                     push!(first_pass.args, x)
                 end
@@ -448,7 +464,7 @@ end
 
 function generate_generated_funcs_expressions(model_name, expr)
     # Determine the set of variables that are either parameters or data, after interpolating any globals inserted via `$`
-    expr = interpolate_globals(expr)
+    # expr = interpolate_globals(expr)]
     variable_set = determine_variables(expr)
     variables = [v for v ∈ variable_set] # ensure order is constant
     variable_type_names = [Symbol("##Type##", v) for v ∈ variables]
@@ -576,6 +592,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         end
         if return_partials
             processing = quote
+                $(verbose_models() ? :(println("Before differentiating, the model is: \n", ProbabilityModels.PaddedMatrices.simplify_expr(expr), "\n\n")) : nothing)
                 ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, $(verbose_models()))
                 expr_out = quote
                     target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
@@ -620,9 +637,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                   end
               end
         end)
-
     end
-
     # Now, we would like to apply
     PaddedMatrices.simplify_expr.((struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, cvq, pn, clq, variables))
     #struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_quote, cvq, pn, clq, variables))
