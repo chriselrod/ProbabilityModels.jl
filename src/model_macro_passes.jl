@@ -466,7 +466,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     # Determine the set of variables that are either parameters or data, after interpolating any globals inserted via `$`
     # expr = interpolate_globals(expr)]
     variable_set = determine_variables(expr)
-    variables = [v for v ∈ variable_set] # ensure order is constant
+    variables = sort!([v for v ∈ variable_set]) # ensure order is constant
     variable_type_names = [Symbol("##Type##", v) for v ∈ variables]
 
     Nparam = Symbol("##number_of_parameters##")

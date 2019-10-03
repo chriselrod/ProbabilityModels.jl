@@ -130,15 +130,12 @@ function ITPExpectedValue_quote(
         (track_β, track_κ, track_θ) = track
         add_θ = true
     end
-
     #TODO: the first time equals θ, and the last equals θ + β; can skip exponential calculations.
-
     # M x N output
     # M total times
     # N total β and κs
     W, Wshift = VectorizationBase.pick_vector_width_shift(M, T)
     Wm1 = W - 1
-    
     if !partial || (!track_β && !track_κ)
         return_expr = track_θ ? :(μ, ProbabilityModels.Reducer{:row}()) : :μ
         return_expr = sp ? :(sp, $return_expr) : return_expr
@@ -147,7 +144,7 @@ function ITPExpectedValue_quote(
                 βₙ = β[n+1]
                 κₙ = κ[n+1]
                 $(add_θ ? :(θₙ = θ[n+1]) : nothing)
-                @vectorize $T for m ∈ 1:$M
+                @vvectorize $T for m ∈ 1:$M
                     μ[m + $P*n] = $(add_θ ? :(βₙ * (one($T) - exp(-κₙ * τ[m])) + θₙ ) : :(βₙ * (one($T) - exp(-κₙ * τ[m])))  )
                 end
             end
@@ -171,10 +168,6 @@ function ITPExpectedValue_quote(
                               tₘ = τ[m]
                               ℯκt = exp( nκₙ * tₘ)
                               βₙℯκt = βₙ * ℯκt
-#=                              @show typeof(vone)
-                              @show typeof(ℯκt)
-                              @show vone
-                              @show ℯκt=#
                               Omℯκt = vone - ℯκt
                               ∂β[m + $P*n] = Omℯκt
                               μ[m + $P*n] = $(add_θ ? :(βₙ * Omℯκt + θₙ) : :(βₙ - βₙℯκt) )
@@ -194,7 +187,7 @@ function ITPExpectedValue_quote(
                 βₙ = β[n+1]
                 κₙ = κ[n+1]
                 $(add_θ ? :(θₙ = θ[n+1]) : nothing)
-                @vectorize $T for m ∈ 1:$M
+                @vvectorize $T for m ∈ 1:$M
                     tₘ = τ[m]
                     ℯκt = exp(- κₙ * tₘ)
                     Omℯκt = one($T) - ℯκt
@@ -214,7 +207,7 @@ function ITPExpectedValue_quote(
                 βₙ = β[n+1]
                 κₙ = κ[n+1]
                 $(add_θ ? :(θₙ = θ[n+1]) : nothing)
-                @vectorize $T for m ∈ 1:$M
+                @vvectorize $T for m ∈ 1:$M
                     tₘ = τ[m]
                     ℯκt = exp(- κₙ * tₘ)
                     βₙℯκt = βₙ * ℯκt
