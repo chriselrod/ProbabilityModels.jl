@@ -5,8 +5,6 @@ function MCMCChainSummary(
 ) where {T,P}
     P2, S, C = size(chains)
     @assert P == P2 "The model is of a $P-dimensional parameter space, but we have $P2 parameters in our chain."
-    nchains = length(chains)
-    samples = length(first(chains))
     D = DistributionParameters.constrained_length(model)
     # May as well allocate it on our stack, because we're returning a summary of this chain rather than the chain
     # this way, its at least recoverable
@@ -14,7 +12,7 @@ function MCMCChainSummary(
     # stride_ch2 = PaddedMatrices.calc_padding(D, T)
     # chainarray = PaddedMatrices.DynamicPtrArray{T,3}(pointer(STACK_POINTER_REF[],T), (D, samples, nchains), stride_ch2)
     stride_ch2 = D
-    chainarray = Array{T}(undef, D, samples, nchains)
+    chainarray = Array{T}(undef, D, S, C)
     ptr_ch1 = pointer(chains)
     ptr_ch2 = pointer(chainarray)
     for c ∈ 0:C-1

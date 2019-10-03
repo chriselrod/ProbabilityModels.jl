@@ -470,10 +470,10 @@ function generate_generated_funcs_expressions(model_name, expr)
         function $model_name{$Nparam}( $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
             $model_name{$Nparam,$(variable_type_names...)}($(variables...))
         end
-        function $model_name{$Nparam}($precomp, $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
+        function $model_name{$Nparam}($precomp::Bool, $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
             if $precomp && (ProbabilityModels.NTHREADS[] > 1)
-                $tlag = Threads.@spawn precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false}, ProbabilityModels.StackPointer))
-                $tl = Threads.@spawn precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false}, ProbabilityModels.StackPointer))
+                $tlag = Threads.@spawn precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+                $tl = Threads.@spawn precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
                 wait($tlag); wait($tl)
             end
             $model_name{$Nparam,$(variable_type_names...)}($(variables...))
