@@ -62,7 +62,7 @@ Base.size(::AbstractReducer) = ()
 
 @generated function Base.:*(A::PaddedMatrices.AbstractFixedSizeMatrix{M,N,T,P}, ::Reducer{:row}) where {M,N,T,P}
     quote
-        reduction = MutableFixedSizeVector{$N,$T}(undef)
+        reduction = FixedSizeVector{$N,$T}(undef)
         @inbounds for n ∈ 0:(N-1)
             sₙ = zero(T)
             @vvectorize $T for m ∈ 1:$M
@@ -174,7 +174,7 @@ end
 @generated function Base.:*(A::AbstractMatrix{T}, ::Reducer{S}) where {T,S}
     S == true && return :(sum(A))
     # y = Vector{T}(undef, 0)
-    y = MutableFixedSizeVector{sum(S),T}(undef)
+    y = FixedSizeVector{sum(S),T}(undef)
     quote
         # resize!(y, size(A,1))
         sum!($y, A)' * Reducer{$S}()
@@ -221,7 +221,7 @@ end
 end
 @generated function Base.:*(A::AbstractMatrix{T}, rw::ReducerWrapper{S}) where {T,S}
     # y = Vector{T}(undef, 0)
-    y = MutableFixedSizeVector{sum(S),T}(undef)
+    y = FixedSizeVector{sum(S),T}(undef)
     quote
         # resize!(y, size(A,1))
         sum!($y, A)' * rw

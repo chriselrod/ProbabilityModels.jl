@@ -238,7 +238,7 @@ end
         M = R
     end
     quote
-        μ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)
+        μ = FixedSizeMatrix{$M,$N,$T,$M}(undef)
         $(ITPExpectedValue_quote(M, N, T, (false, false), false, false, M))
     end
 end
@@ -255,13 +255,13 @@ end
     end
     (track_β, track_κ) = track
     q = quote
-        μ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)
+        μ = FixedSizeMatrix{$M,$N,$T,$M}(undef)
     end
     if track_β
-        push!(q.args, :(∂β = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)))
+        push!(q.args, :(∂β = FixedSizeMatrix{$M,$N,$T,$M}(undef)))
     end
     if track_κ
-        push!(q.args, :(∂κ = MutableFixedSizeMatrix{$M,$N,$T,$N}(undef)))
+        push!(q.args, :(∂κ = FixedSizeMatrix{$M,$N,$T,$N}(undef)))
     end
     push!(q.args, ITPExpectedValue_quote(M, N, T, track, true,false,M))
     q
@@ -279,7 +279,7 @@ end
         M = R
     end
     quote
-        μ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)
+        μ = FixedSizeMatrix{$M,$N,$T,$M}(undef)
         $(ITPExpectedValue_quote(M, N, T, (false, false, false), false,false,M))
     end
 end
@@ -298,13 +298,13 @@ end
     end
     (track_β, track_κ, track_θ) = track
     q = quote
-        μ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)
+        μ = FixedSizeMatrix{$M,$N,$T,$M}(undef)
     end
     if track_β
-        push!(q.args, :(∂β = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)))
+        push!(q.args, :(∂β = FixedSizeMatrix{$M,$N,$T,$M}(undef)))
     end
     if track_κ
-        push!(q.args, :(∂κ = MutableFixedSizeMatrix{$M,$N,$T,$M}(undef)))
+        push!(q.args, :(∂κ = FixedSizeMatrix{$M,$N,$T,$M}(undef)))
     end
     push!(q.args, ITPExpectedValue_quote(M, N, T, track, true,false,M))
     q
@@ -427,7 +427,7 @@ function HierarchicalCentering_quote(M::Int, @nospecialize(T), μisvec::Bool, σ
             end
         else
             return quote
-                xout = MutableFixedSizeVector{$M,$T}(undef)
+                xout = FixedSizeVector{$M,$T}(undef)
                 @vvectorize $T for m ∈ 1:$M
                     xout[m] = $μsym + $σsym * y[m]
                 end
@@ -443,7 +443,7 @@ function HierarchicalCentering_quote(M::Int, @nospecialize(T), μisvec::Bool, σ
         end
         return_expr = Expr(:tuple, :xout )
     else
-        q = quote xout = MutableFixedSizeVector{$M,$T}(undef) end
+        q = quote xout = FixedSizeVector{$M,$T}(undef) end
         return_expr = Expr(:tuple, :(ConstantFixedSizeVector(xout)) )
     end
     loop_body = quote xout[m] = $μsym + $σsym * y[m] end
