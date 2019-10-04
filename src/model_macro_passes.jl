@@ -385,7 +385,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
         @generated function ProbabilityModels.DistributionParameters.constrain!($v::AbstractVector{$T}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}) where {$Nparam, $T, $(variable_type_names...)}
             return_partials = false
             first_pass = quote end
-            push!(first_pass.args, Expr(:(=), Symbol("##stack_pointer##"), Expr(:call, :(PaddedMatrices.StackPointer), Expr(:call, :pointer, $(QuoteNode(Symbol("##storage_vector##")))))))
+            push!(first_pass.args, Expr(:(=), Symbol("##stack_pointer##"), Expr(:call, :(ProbabilityModels.StackPointer), Expr(:call, :pointer, $(QuoteNode(Symbol("##storage_vector##")))))))
             push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.VectorizationBase.vectorizable), $(QuoteNode(θ)))))
             second_pass = quote end
         end
