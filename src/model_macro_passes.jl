@@ -119,7 +119,7 @@ end
 # a /= b
 # have been expanded. Later insertions of these symbols, for example in the constraining
 # transformations of the parameters, will be bypassed. This allows for incrementing of
-# the `ProbabilityModels.VectorizationBase.vectorizable` parameters:
+# the `ProbabilityModels.vectorizable` parameters:
 # Symbol("##θparameter##")
 # Symbol("##∂θparameter##")
 
@@ -270,6 +270,7 @@ function first_updates_to_assignemnts(expr, variables_input)::Expr
 #                    expr.args[i] = :( a_ = a_ )
                 else
                     println(expr)
+                    println(ex)
                     throw("""
                         This was the first assignment for $lhs in:
                             $(ex)
@@ -374,7 +375,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
         @generated function ProbabilityModels.DistributionParameters.constrain($ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}, ::Val{$logjac} = Val{false}()) where {$Nparam, $T, $logjac, $(variable_type_names...)}
             return_partials = false
             first_pass = quote end
-            push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.VectorizationBase.vectorizable), $(QuoteNode(θ)))))
+            push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.vectorizable), $(QuoteNode(θ)))))
             second_pass = quote end
             transformed_params = Expr(:tuple,)
             return_expr = Expr(:if, $(QuoteNode(logjac)), Expr(:tuple, transformed_params, :target), transformed_params)
@@ -386,7 +387,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
             return_partials = false
             first_pass = quote end
             push!(first_pass.args, Expr(:(=), Symbol("##stack_pointer##"), Expr(:call, :(ProbabilityModels.StackPointer), Expr(:call, :pointer, $(QuoteNode(Symbol("##storage_vector##")))))))
-            push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.VectorizationBase.vectorizable), $(QuoteNode(θ)))))
+            push!(first_pass.args, Expr(:(=), Symbol("##θparameter##"), Expr(:call, :(ProbabilityModels.vectorizable), $(QuoteNode(θ)))))
             second_pass = quote end
         end
     end
@@ -442,7 +443,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
             if $(variable_type_names[i]) <: Val
                 ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false, true)
                 if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: DistributionParameters.RealFloat
-                    push!(first_pass.args, Expr(:call, :(ProbabilityModels.VectorizationBase.store!),
+                    push!(first_pass.args, Expr(:call, :(ProbabilityModels.store!),
                                           Expr(:call, :pointer, Symbol("##stack_pointer##"), $(QuoteNode(T))), $(QuoteNode(variables[i]))))
                     push!(first_pass.args, Expr(:(+=), Symbol("##stack_pointer##"), Expr(:call, :sizeof, $(QuoteNode(T)) )))
               end
@@ -593,12 +594,12 @@ function generate_generated_funcs_expressions(model_name, expr)
         if return_partials
             processing = quote
                 $(verbose_models() ? :(println("Before differentiating, the model is: \n", ProbabilityModels.PaddedMatrices.simplify_expr(expr), "\n\n")) : nothing)
-                ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, $(verbose_models()))
+                ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, :ProbabilityModels, $(verbose_models()))
                 expr_out = quote
-                    target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
-                    $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
+                    target = ProbabilityModels.initialize_target($T_sym)
+                    $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
                     $first_pass
-                    $(Symbol("##∂θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($(Symbol("##∂θparameter##m")))
+                    $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θparameter##m")))
                     $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
                     $second_pass
                 end
@@ -614,10 +615,10 @@ function generate_generated_funcs_expressions(model_name, expr)
             processing = quote
                 ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars, $(verbose_models()))
                 expr_out = quote
-                    target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
-                    $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
+                    target = ProbabilityModels.initialize_target($T_sym)
+                    $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
                     $first_pass
-                    $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
+                    $(Symbol("##scalar_target##")) = ProbabilityModels.vsum($(name_dict[:target]))
                     isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf)
                 end
             end
@@ -629,7 +630,10 @@ function generate_generated_funcs_expressions(model_name, expr)
             T_sym = $(QuoteNode(T))
             ℓ_sym = $(QuoteNode(ℓ))
             $processing
-            final_quote = ProbabilityModels.StackPointers.stack_pointer_pass(ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),nothing,$(verbose_models()),:(ProbabilityModels.StackPointers)) |> ProbabilityModels.PaddedMatrices.simplify_expr
+              final_quote = ProbabilityModels.StackPointers.stack_pointer_pass(
+                  ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),
+                  nothing,$(verbose_models()),:(ProbabilityModels.StackPointers)
+              ) |> ProbabilityModels.PaddedMatrices.simplify_expr
               $(verbose_models()) && println(final_quote)
               quote
                   @inbounds begin
@@ -653,7 +657,8 @@ macro model(model_name, expr)
     esc(quote
         # $struct_quote; $dim_q; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $constrain_q;
         $struct_quote; $struct_kwarg_quote; $θq_value; $θq_valuegradient; $constrain_q; $cvq; $pn; $clq;
-        ProbabilityModels.Distributed.myid() == 1 && println($printstring)
+#        ProbabilityModels.Distributed.myid() == 1 && println($printstring)
+        println($printstring)
     end)
 end
 

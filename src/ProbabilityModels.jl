@@ -3,16 +3,19 @@ module ProbabilityModels
 using MacroTools,
     VectorizationBase, SIMDPirates, LoopVectorization, SLEEFPirates,
     PaddedMatrices, StructuredMatrices, DistributionParameters,
-    ProbabilityDistributions, ReverseDiffExpressions, StackPointers
+    ProbabilityDistributions, ReverseDiffExpressions, StackPointers,
+    VectorizedRNG
 
 using VectorizedRNG: AbstractPCG, PtrPCG
 using MacroTools: postwalk, prewalk, @capture, @q
 
-using ReverseSourceToSourceDiffBase:
+using ReverseDiffExpressionsBase:
     RESERVED_INCREMENT_SEED_RESERVED,
     RESERVED_DECREMENT_SEED_RESERVED,
     RESERVED_MULTIPLY_SEED_RESERVED,
-    RESERVED_NMULTIPLY_SEED_RESERVED
+    RESERVED_NMULTIPLY_SEED_RESERVED,
+    initialize_target, One,
+    ∂mul, ∂getindex
 
 using PaddedMatrices:
     AbstractFixedSizeVector,

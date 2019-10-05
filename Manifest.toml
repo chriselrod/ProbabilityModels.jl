@@ -52,15 +52,15 @@ uuid = "a8cc5b0e-0ffa-5ad4-8c14-923d3ee1735f"
 version = "4.0.0"
 
 [[DataAPI]]
-git-tree-sha1 = "8903f0219d3472543fc4b2f5ebaf675a07f817c0"
+git-tree-sha1 = "674b67f344687a88310213ddfa8a2b3c76cc4252"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
-version = "1.0.1"
+version = "1.1.0"
 
 [[DataStructures]]
 deps = ["InteractiveUtils", "OrderedCollections"]
-git-tree-sha1 = "0809951a1774dc724da22d26e4289bbaab77809a"
+git-tree-sha1 = "517ce30aa57cdfae1ab444a7c0aef8bb86345bc2"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.17.0"
+version = "0.17.1"
 
 [[DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
@@ -202,7 +202,7 @@ deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 
 [[ProbabilityDistributions]]
-deps = ["DistributionParameters", "LinearAlgebra", "LoopVectorization", "PaddedMatrices", "SIMDPirates", "SLEEFPirates", "ScatteredArrays", "SpecialFunctions", "StackPointers", "StructuredMatrices", "VectorizationBase", "VectorizedRNG"]
+deps = ["DistributionParameters", "LinearAlgebra", "LoopVectorization", "PaddedMatrices", "ReverseDiffExpressionsBase", "SIMDPirates", "SLEEFPirates", "ScatteredArrays", "SpecialFunctions", "StackPointers", "StructuredMatrices", "VectorizationBase", "VectorizedRNG"]
 path = "/home/chriselrod/.julia/dev/ProbabilityDistributions"
 uuid = "3e413219-3d65-5be9-8809-9d8824e993e6"
 version = "0.1.0"
@@ -227,6 +227,18 @@ git-tree-sha1 = "7b1d07f411bc8ddb7977ec7f377b97b158514fe0"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "0.2.0"
 
+[[ReverseDiffExpressions]]
+deps = ["DiffRules", "DistributionParameters", "FunctionWrappers", "LinearAlgebra", "LoopVectorization", "MacroTools", "PaddedMatrices", "ProbabilityDistributions", "ReverseDiffExpressionsBase", "SIMDPirates", "SLEEFPirates", "ScatteredArrays", "StackPointers", "StructuredMatrices", "VectorizationBase", "VectorizedRNG"]
+path = "/home/chriselrod/.julia/dev/ReverseDiffExpressions"
+uuid = "b396f49a-4293-4e36-b544-ecf05182fe72"
+version = "0.1.0"
+
+[[ReverseDiffExpressionsBase]]
+deps = ["SIMDPirates", "StackPointers", "VectorizationBase"]
+path = "/home/chriselrod/.julia/dev/ReverseDiffExpressionsBase"
+uuid = "6c4e8705-acc8-45e6-99c7-2e34d4f10b96"
+version = "0.1.0"
+
 [[SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 
@@ -243,7 +255,7 @@ uuid = "476501e8-09a2-5ece-8869-fb82de89a1fa"
 version = "0.1.0"
 
 [[ScatteredArrays]]
-deps = ["LoopVectorization", "PaddedMatrices", "SIMDPirates", "SLEEFPirates", "StaticArrays", "VectorizationBase", "VectorizedRNG"]
+deps = ["LoopVectorization", "PaddedMatrices", "SIMDPirates", "SLEEFPirates", "VectorizationBase", "VectorizedRNG"]
 path = "/home/chriselrod/.julia/dev/ScatteredArrays"
 uuid = "7824b66e-fd9c-11e8-16df-0940c56ad1d9"
 version = "0.1.0"
@@ -274,18 +286,12 @@ path = "/home/chriselrod/.julia/dev/StackPointers"
 uuid = "062a3e2c-34b1-4659-9cae-7af421e0d832"
 version = "0.1.0"
 
-[[StaticArrays]]
-deps = ["LinearAlgebra", "Random", "Statistics"]
-git-tree-sha1 = "db23bbf50064c582b6f2b9b043c8e7e98ea8c0c6"
-uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "0.11.0"
-
 [[Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
 uuid = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [[StructuredMatrices]]
-deps = ["LinearAlgebra", "LoopVectorization", "PaddedMatrices", "SIMDPirates", "SLEEFPirates", "StackPointers", "VectorizationBase", "VectorizedRNG"]
+deps = ["LinearAlgebra", "LoopVectorization", "PaddedMatrices", "ReverseDiffExpressionsBase", "SIMDPirates", "SLEEFPirates", "StackPointers", "VectorizationBase", "VectorizedRNG"]
 path = "/home/chriselrod/.julia/dev/StructuredMatrices"
 uuid = "831e5bd0-d036-11e8-2dea-c77e7dab29a6"
 version = "0.1.0"
