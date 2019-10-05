@@ -593,7 +593,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         if return_partials
             processing = quote
                 $(verbose_models() ? :(println("Before differentiating, the model is: \n", ProbabilityModels.PaddedMatrices.simplify_expr(expr), "\n\n")) : nothing)
-                ProbabilityModels.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, $(verbose_models()))
+                ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, $(verbose_models()))
                 expr_out = quote
                     target = ProbabilityModels.DistributionParameters.initialize_target($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.VectorizationBase.vectorizable($θ_sym)
