@@ -38,13 +38,15 @@ function translate_sampling_statements(expr)::Expr
                 end
             elseif @capture(x, y2_ ~ Normal(X_ * β_, θ2__))
                 return :(target = ProbabilityModels.vadd(target, Normal($y2, $X, $β, $(θ2...))))
+            elseif f0 == :identity
+                return :(target = ProbabilityModels.vadd(target, $(θ0...)))
             end
             return :(target = ProbabilityModels.vadd(target, $f0($y0, $(θ0...))))
 #            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
-        elseif @capture(x, identity(a_))
-            return a
+        # elseif @capture(x, identity(a_))
+            # return a
         # elseif @capture(x, a_:b_)
         #     if a isa Integer && b isa Integer
         #         return :(ProbabilityModels.PaddedMatrices.Static{($a,$b)}())
