@@ -485,15 +485,25 @@ function generate_generated_funcs_expressions(model_name, expr)
         end
     end
     precomp = gensym(:precompile); tlag = gensym(:tlag); tl = gensym(:tl)
+    precomp_quote = if VERSION >= v"1.3.0-alpha.0" && ProbabilityModels.NTHREADS[] > 1
+        quote
+            $tlag = Threads.@spawn precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+            $tl = Threads.@spawn precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+            wait($tlag); wait($tl)
+        end
+    else
+        quote
+            precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+            precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+        end
+    end
     struct_kwarg_quote = quote
         function $model_name{$Nparam}( $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
             $model_name{$Nparam,$(variable_type_names...)}($(variables...))
         end
         function $model_name{$Nparam}($precomp::Bool, $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
-            if $precomp && (ProbabilityModels.NTHREADS[] > 1)
-                $tlag = Threads.@spawn precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
-                $tl = Threads.@spawn precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
-                wait($tlag); wait($tl)
+            if $precomp
+                $precomp_quote
             end
             $model_name{$Nparam,$(variable_type_names...)}($(variables...))
         end

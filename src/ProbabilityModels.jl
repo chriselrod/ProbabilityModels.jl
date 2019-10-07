@@ -36,6 +36,7 @@ export @model, logdensity, logdensity_and_gradient, logdensity_and_gradient!, MC
 # function logdensity_and_gradient! end
 
 const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
+# const MMAP = Ref{Matrix{UInt8}}()
 const STACK_POINTER_REF = Ref{StackPointer}()
 const LOCAL_STACK_SIZE = Ref{Int}()
 const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
@@ -58,7 +59,7 @@ include("mcmc_chains.jl")
 include("rng.jl")
 include("check_gradient.jl")
 
-@def_stackpointer_fallback emax_dose_response ITPExpectedValue ∂ITPExpectedValue HierarchicalCentering ∂HierarchicalCentering
+
 function __init__()
     NTHREADS[] = Threads.nthreads()
     # Note that 1 GiB == 2^30 == 1 << 30 bytesy
@@ -70,6 +71,8 @@ function __init__()
         1 << 29
     end + VectorizationBase.REGISTER_SIZE - 1 # so we have at least the indicated stack size after REGISTER_SIZE-alignment
     UNALIGNED_POINTER[] = Libc.malloc( NTHREADS[] * LOCAL_STACK_SIZE[] )
+    # MMAP[] = Mmap.mmap(Matrix{UInt8}, LOCAL_STACK_SIZE[], NTHREADS[])
+    # STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(Base.unsafe_convert(Ptr{Cvoid}, pointer(MMAP[]))) )
     STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
     STACK_POINTER_REF[] = threadrandinit!(STACK_POINTER_REF[], GLOBAL_PCGs)
     # @eval const STACK_POINTER = STACK_POINTER_REF[]
@@ -80,7 +83,7 @@ function __init__()
 #    for m ∈ (:ITPExpectedValue, :∂ITPExpectedValue)
 #        push!(PaddedMatrices.STACK_POINTER_SUPPORTED_METHODS, m)
     #    end
-    @add_stackpointer_method emax_dose_response ITPExpectedValue ∂ITPExpectedValue HierarchicalCentering ∂HierarchicalCentering
+    
 end
 function realloc_stack(new_local_stack_size::Integer)
     @warn """You must redefine all probability models. The stack pointers get dereferenced at compile time, and the stack has just been reallocated.
