@@ -1,10 +1,13 @@
 module ProbabilityModels
 
-using MacroTools,
-    VectorizationBase, SIMDPirates, LoopVectorization, SLEEFPirates,
-    PaddedMatrices, StructuredMatrices, DistributionParameters,
-    ProbabilityDistributions, ReverseDiffExpressions, StackPointers,
-    VectorizedRNG
+using MacroTools, Mmap,
+    VectorizationBase, SIMDPirates, SLEEFPirates,
+    LoopVectorization, VectorizedRNG,
+    PaddedMatrices, StructuredMatrices,
+    DistributionParameters, ProbabilityDistributions,
+    ReverseDiffExpressions, StackPointers
+
+
 
 using VectorizedRNG: AbstractPCG, PtrPCG
 using MacroTools: postwalk, prewalk, @capture, @q
@@ -31,12 +34,14 @@ import QuasiNewtonMethods:
 import DistributionParameters: parameter_names
 import MCMCChainSummaries: MCMCChainSummary
 
-export @model, logdensity, logdensity_and_gradient, logdensity_and_gradient!, MCMCChainSummary#, NUTS_init_tune_mcmc_default, NUTS_init_tune_distributed, sample_cov, sample_mean
+export @model, MCMCChainSummary,
+    logdensity, logdensity_and_gradient,
+    logdensity_and_gradient!
 
 # function logdensity_and_gradient! end
 
-const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
-# const MMAP = Ref{Matrix{UInt8}}()
+# const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
+const MMAP = Ref{Matrix{UInt8}}()
 const STACK_POINTER_REF = Ref{StackPointer}()
 const LOCAL_STACK_SIZE = Ref{Int}()
 const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
@@ -68,12 +73,14 @@ function __init__()
     LOCAL_STACK_SIZE[] = if "PROBABILITY_MODELS_STACK_SIZE" ∈ keys(ENV)
         parse(Int, ENV["PROBABILITY_MODELS_STACK_SIZE"])
     else
-        1 << 29
+        1 << 30
     end + VectorizationBase.REGISTER_SIZE - 1 # so we have at least the indicated stack size after REGISTER_SIZE-alignment
-    UNALIGNED_POINTER[] = Libc.malloc( NTHREADS[] * LOCAL_STACK_SIZE[] )
-    # MMAP[] = Mmap.mmap(Matrix{UInt8}, LOCAL_STACK_SIZE[], NTHREADS[])
-    # STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(Base.unsafe_convert(Ptr{Cvoid}, pointer(MMAP[]))) )
-    STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
+    # UNALIGNED_POINTER[] = Libc.malloc( NTHREADS[] * LOCAL_STACK_SIZE[] )
+    MMAP[] = Mmap.mmap(Matrix{UInt8}, LOCAL_STACK_SIZE[], NTHREADS[])
+    STACK_POINTER_REF[] = PaddedMatrices.StackPointer(
+        VectorizationBase.align(Base.unsafe_convert(Ptr{Cvoid}, pointer(MMAP[])))
+    )
+    # STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
     STACK_POINTER_REF[] = threadrandinit!(STACK_POINTER_REF[], GLOBAL_PCGs)
     # @eval const STACK_POINTER = STACK_POINTER_REF[]
     # @eval const GLOBAL_WORK_BUFFER = Vector{Vector{UInt8}}(Base.Threads.nthreads())
@@ -89,8 +96,10 @@ function realloc_stack(new_local_stack_size::Integer)
     @warn """You must redefine all probability models. The stack pointers get dereferenced at compile time, and the stack has just been reallocated.
 Re-evaluating densities without first recompiling them will likely crash Julia!"""
     LOCAL_STACK_SIZE[] = new_local_stack_size
-    UNALIGNED_POINTER[] = Libc.realloc(UNALIGNED_POINTER[], new_local_stack_size + VectorizationBase.REGISTER_SIZE - 1)
-    STACK_POINTER_REF[] = PaddedMatrices.StackPointer( VectorizationBase.align(UNALIGNED_POINTER[]) )
+    MMAP[] = Mmap.mmap(Matrix{UInt8}, LOCAL_STACK_SIZE[], NTHREADS[])
+    STACK_POINTER_REF[] = PaddedMatrices.StackPointer(
+        VectorizationBase.align(Base.unsafe_convert(Ptr{Cvoid}, pointer(MMAP[])))
+    )
     STACK_POINTER_REF[] = threadrandinit!(STACK_POINTER_REF[], GLOBAL_PCGs)
 end
 
