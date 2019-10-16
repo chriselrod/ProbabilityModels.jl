@@ -1,7 +1,7 @@
 
 
 function MCMCChainSummary(
-    chains::AbstractArray{T,3}, model::AbstractProbabilityModel{P}
+    chains::AbstractArray{T,3}, model::AbstractProbabilityModel{P}; threaded::Bool = Threads.nthreads > 1
 ) where {T,P}
     P2, S, C = size(chains)
     @assert P == P2 "The model is of a $P-dimensional parameter space, but we have $P2 parameters in our chain."
@@ -26,7 +26,8 @@ function MCMCChainSummary(
     end
     MCMCChainSummary(
         chainarray,
-        DistributionParameters.parameter_names(model)
+        DistributionParameters.parameter_names(model),
+        threaded = threaded
     )
 end
 
