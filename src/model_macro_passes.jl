@@ -594,7 +594,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                       first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
                       $return_partials, ProbabilityModels, Symbol("##stack_pointer##"), true, false
                   )
-                elseif $(variable_type_names[i]) <: Array
+                elseif $(variable_type_names[i]) <: Union{Array,SubArray{<:Any,<:Any,<:Array}}
                   push!(first_pass.args, $load_data_dynamic_ptr_array)
                 elseif $(variable_type_names[i]) <: ProbabilityModels.PaddedMatrices.AbstractMutableFixedSizeArray
                   push!(first_pass.args, $load_data_ptr_array)

@@ -36,7 +36,7 @@ import MCMCChainSummaries: MCMCChainSummary
 
 export @model, MCMCChainSummary,
     logdensity, logdensity_and_gradient,
-    logdensity_and_gradient!
+    logdensity_and_gradient!, stackpointer
 
 # function logdensity_and_gradient! end
 
@@ -102,5 +102,6 @@ Re-evaluating densities without first recompiling them will likely crash Julia!"
     )
     STACK_POINTER_REF[] = threadrandinit!(STACK_POINTER_REF[], GLOBAL_PCGs)
 end
+stackpointer() = STACK_POINTER_REF[] + (Threads.threadid() - 1) * LOCAL_STACK_SIZE[]
 
 end # module
