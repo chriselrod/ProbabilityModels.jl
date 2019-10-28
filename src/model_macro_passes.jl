@@ -203,113 +203,125 @@ end
 #     end, vars
 # end
 
-"""
-Translates first update statements into assignments.
-
-This is so that we can generate autodiff code via incrementing nodes, eg
-node += adjoint * value
-this saves us from having to initialize them all at 0.
-While the compiler can easily eliminate clean up those initializations with scalars,
-it may not be able to do so for arbitrary user types.
-
-
-"""
-function first_updates_to_assignemnts(expr, variables_input)::Expr
-    # Note that this function is recursive.
-    # variables_input must NOT be a Set, otherwise that set will be mutated.
-    # The idea is to call it with something other than a set.
-    # That is then used to construct a set.
-    # When called recursively, it will continue to build up said set.
-    if isa(variables_input, Set)
-        variables = variables_input
-    else
-        variables = Set(variables_input)
-    end
-    ignored_symbols = Set{Symbol}()
-    for i ∈ eachindex(expr.args)
-        ex = expr.args[i]
-        isa(ex, Expr) || continue
-        if ex.head == :block
-            expr.args[i] = first_updates_to_assignemnts(ex, variables)
-            continue
-        end
-        isa(ex.args[1], Symbol) || continue
-        lhs = ex.args[1]
-        # @show lhs
-        new_assignment = lhs ∉ variables
-        # @show new_assignment
-        push!(variables, lhs)
-        if ex.head == :(=)
-            check = false
-            for j ∈ 2:length(ex.args)
-                if isa(ex.args[j], Expr) && ex.args[j].head == :block
-                    ex.args[j] = first_updates_to_assignemnts(ex.args[j], variables)
-                    continue
-                end
-                let new_assignment = new_assignment
-                    postwalk(ex.args[j]) do x
-                        isa(x, Symbol) && push!(variables, x)
-                        if new_assignment && x == lhs # Then we need to check that it doesn't appear on the lhs
-                            check = true
-                        end
-                        x
-                    end
-                end
-            end
-            # @show lhs, new_assignment, check
-            if check
-                if @capture(ex, a_ = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED(b__, a_) )
-                    expr.args[i] = :($a = ProbabilityModels.RESERVED_MULTIPLY_SEED_RESERVED($(b...)))
-                elseif @capture(ex, a_ = ProbabilityModels.RESERVED_DECREMENT_SEED_RESERVED(b__, a_) )
-                    expr.args[i] = :($a = ProbabilityModels.RESERVED_NMULTIPLY_SEED_RESERVED($(b...)))
-                elseif @capture(ex, a_ = a_ + b__ ) || @capture(ex, a_ = b__ + a_ ) || @capture(ex, a_ = Base.FastMath.add_fast(a_, b__)) || @capture(ex, a_ = Base.FastMath.add_fast(b__, a_))# || @capture(ex, a_ = b__ )
-                    expr.args[i] = :($a = $(b...))
-                elseif @capture(ex, a_ = a_ - b__ )
-                    expr.args[i] = :($a = -1 * $(b...))
-                elseif @capture(ex, a_ = ProbabilityModels.vifelse(b_, ProbabilityModels.vadd(a_, c_), a_))
-                    expr.args[i] = :($a = ProbabilityModels.vifelse($b, $c, 0.0))
-#                elseif @capture(ex, target = ProbabilityModels.DistributionParameters.add(a_, b_) )
-#                    expr.args[i] = :( a_ = a_ )
-                else
-                    println(expr)
-                    println(ex)
-                    throw("""
-                        This was the first assignment for $lhs in:
-                            $(ex)
-                        If this was meant to initialize $lhs, could not determine how to do so.
-                        """)
-                end
-            end
-        elseif ex.head == :(+=)# || ex.head == :(*=)
-            if new_assignment
-                ex.head = :(=)
-            end
-            for j ∈ 2:length(ex.args)
-                postwalk(ex.args[j]) do x
-                    isa(x, Symbol) && push!(variables, x)
-                    x
-                end
-            end
-        elseif ex.head == :(-=)# || ex.head == :(*=)
-            if new_assignment
-                ex.head = :(=)
-                expr.args[i] = :($lhs = -1 * $(expr.args[2:end]...) )
-            end
-            for j ∈ 2:length(ex.args)
-                postwalk(ex.args[j]) do x
-                    isa(x, Symbol) && push!(variables, x)
-                    x
-                end
-            end
-        else # we walk and simply add symbols, assuming everything referenced must already be defined?
-            postwalk(ex) do x
-                isa(x, Symbol) && push!(variables, x)
-                x
-            end
+function uninitialize_first_seed_updates(expr)::Expr
+    initialized_seeds = Set{Symbol}()
+    postwalk(expr) do ex
+        if @capture(ex, ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED!(S_, args__))
+            S::Symbol 
+            S ∈ initialized_seeds && return ex
+            push!(initialized_seeds, S)
+            Expr(:call, :(ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED!), :(ProbabilityModels.uninitialized($S)), args...)
+        else
+            ex
         end
     end
-    expr
 end
+
+# """
+# Translates first update statements into assignments.
+
+# This is so that we can generate autodiff code via incrementing nodes, eg
+# node += adjoint * value
+# this saves us from having to initialize them all at 0.
+# While the compiler can easily eliminate clean up those initializations with scalars,
+# it may not be able to do so for arbitrary user types.
+# """
+# function first_updates_to_assignments(expr, variables_input)::Expr
+#     # Note that this function is recursive.
+#     # variables_input must NOT be a Set, otherwise that set will be mutated.
+#     # The idea is to call it with something other than a set.
+#     # That is then used to construct a set.
+#     # When called recursively, it will continue to build up said set.
+#     if isa(variables_input, Set)
+#         variables = variables_input
+#     else
+#         variables = Set(variables_input)
+#     end
+#     ignored_symbols = Set{Symbol}()
+#     for i ∈ eachindex(expr.args)
+#         ex = expr.args[i]
+#         isa(ex, Expr) || continue
+#         if ex.head == :block
+#             expr.args[i] = first_updates_to_assignments(ex, variables)
+#             continue
+#         end
+#         isa(ex.args[1], Symbol) || continue
+#         lhs = ex.args[1]
+#         # @show lhs
+#         new_assignment = lhs ∉ variables
+#         # @show new_assignment
+#         push!(variables, lhs)
+#         if ex.head == :(=)
+#             check = false
+#             for j ∈ 2:length(ex.args)
+#                 if isa(ex.args[j], Expr) && ex.args[j].head == :block
+#                     ex.args[j] = first_updates_to_assignments(ex.args[j], variables)
+#                     continue
+#                 end
+#                 let new_assignment = new_assignment
+#                     postwalk(ex.args[j]) do x
+#                         isa(x, Symbol) && push!(variables, x)
+#                         if new_assignment && x == lhs # Then we need to check that it doesn't appear on the lhs
+#                             check = true
+#                         end
+#                         x
+#                     end
+#                 end
+#             end
+#             # @show lhs, new_assignment, check
+#             if check
+#                 if @capture(ex, a_ = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED(b__, a_) )
+#                     expr.args[i] = :($a = ProbabilityModels.RESERVED_MULTIPLY_SEED_RESERVED($(b...)))
+#                 elseif @capture(ex, a_ = ProbabilityModels.RESERVED_DECREMENT_SEED_RESERVED(b__, a_) )
+#                     expr.args[i] = :($a = ProbabilityModels.RESERVED_NMULTIPLY_SEED_RESERVED($(b...)))
+#                 elseif @capture(ex, a_ = a_ + b__ ) || @capture(ex, a_ = b__ + a_ ) || @capture(ex, a_ = Base.FastMath.add_fast(a_, b__)) || @capture(ex, a_ = Base.FastMath.add_fast(b__, a_))# || @capture(ex, a_ = b__ )
+#                     expr.args[i] = :($a = $(b...))
+#                 elseif @capture(ex, a_ = a_ - b__ )
+#                     expr.args[i] = :($a = -1 * $(b...))
+#                 elseif @capture(ex, a_ = ProbabilityModels.vifelse(b_, ProbabilityModels.vadd(a_, c_), a_))
+#                     expr.args[i] = :($a = ProbabilityModels.vifelse($b, $c, 0.0))
+# #                elseif @capture(ex, target = ProbabilityModels.DistributionParameters.add(a_, b_) )
+# #                    expr.args[i] = :( a_ = a_ )
+#                 else
+#                     println(expr)
+#                     println(ex)
+#                     throw("""
+#                         This was the first assignment for $lhs in:
+#                             $(ex)
+#                         If this was meant to initialize $lhs, could not determine how to do so.
+#                         """)
+#                 end
+#             end
+#         elseif ex.head == :(+=)# || ex.head == :(*=)
+#             if new_assignment
+#                 ex.head = :(=)
+#             end
+#             for j ∈ 2:length(ex.args)
+#                 postwalk(ex.args[j]) do x
+#                     isa(x, Symbol) && push!(variables, x)
+#                     x
+#                 end
+#             end
+#         elseif ex.head == :(-=)# || ex.head == :(*=)
+#             if new_assignment
+#                 ex.head = :(=)
+#                 expr.args[i] = :($lhs = -1 * $(expr.args[2:end]...) )
+#             end
+#             for j ∈ 2:length(ex.args)
+#                 postwalk(ex.args[j]) do x
+#                     isa(x, Symbol) && push!(variables, x)
+#                     x
+#                 end
+#             end
+#         else # we walk and simply add symbols, assuming everything referenced must already be defined?
+#             postwalk(ex) do x
+#                 isa(x, Symbol) && push!(variables, x)
+#                 x
+#             end
+#         end
+#     end
+#     expr
+# end
 
 """
 This pass is for when we aren't taking partial derivatives.
@@ -614,14 +626,12 @@ function generate_generated_funcs_expressions(model_name, expr)
                     $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θparameter##m")))
                     $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
                     $second_pass
-                end
-                push!(expr_out.args, quote
-                        $(Symbol("##scalar_target##")) = ProbabilityModels.SIMDPirates.vsum($(name_dict[:target]))
-                        if !isfinite($(Symbol("##scalar_target##"))) || !all(isfinite, $(Symbol("##∂θparameter##m")))
-                            $(Symbol("##scalar_target##")) = typemin($T_sym)
-                        end
-                        $(Symbol("##scalar_target##"))
-                end)
+                    $(Symbol("##scalar_target##")) = ProbabilityModels.vsum($(name_dict[:target]))
+                    if !isfinite($(Symbol("##scalar_target##"))) || !all(isfinite, $(Symbol("##∂θparameter##m")))
+                        $(Symbol("##scalar_target##")) = typemin($T_sym)
+                    end
+                    $(Symbol("##scalar_target##"))
+                end |> ProbabilityModels.uninitialize_first_seed_updates
             end
         else
             processing = quote
@@ -631,7 +641,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                     $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
                     $first_pass
                     $(Symbol("##scalar_target##")) = ProbabilityModels.vsum($(name_dict[:target]))
-                    isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : $T_sym(-Inf)
+                    isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : typemin($T_sym)
                 end
             end
         end
@@ -643,8 +653,8 @@ function generate_generated_funcs_expressions(model_name, expr)
             ℓ_sym = $(QuoteNode(ℓ))
             $processing
               final_quote = ProbabilityModels.StackPointers.stack_pointer_pass(
-                  ProbabilityModels.first_updates_to_assignemnts(expr_out, model_parameters), $(QuoteNode(Symbol("##stack_pointer##"))),
-                  nothing,$(verbose_models()),:(ProbabilityModels.StackPointers)
+                  expr_out, $(QuoteNode(Symbol("##stack_pointer##"))),
+                  nothing, $(verbose_models()), :ProbabilityModels
               ) |> ProbabilityModels.PaddedMatrices.simplify_expr
               $(verbose_models()) && println(final_quote)
               quote

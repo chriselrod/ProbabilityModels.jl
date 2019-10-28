@@ -7,17 +7,12 @@ using MacroTools, Mmap,
     DistributionParameters, ProbabilityDistributions,
     ReverseDiffExpressions, StackPointers
 
-
-
 using VectorizedRNG: AbstractPCG, PtrPCG
 using MacroTools: postwalk, prewalk, @capture, @q
 
 using ReverseDiffExpressionsBase:
     RESERVED_INCREMENT_SEED_RESERVED,
-    RESERVED_DECREMENT_SEED_RESERVED,
-    RESERVED_MULTIPLY_SEED_RESERVED,
-    RESERVED_NMULTIPLY_SEED_RESERVED,
-    initialize_target, One,
+    initialize_target, uninitialized,
     ∂mul, ∂getindex
 
 using PaddedMatrices:
