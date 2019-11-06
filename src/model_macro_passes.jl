@@ -24,9 +24,9 @@ function translate_sampling_statements(expr)::Expr
             # @show f, y, θ
             if f0 ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
                 if @capture(x, y_ ~ f_(α_ + X_ * β_ , θ__))
-                    return :(target = ProbabilityModels.vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
+                    return :(target = ProbabilityModels.vadd(target, $f($y, $X, $β, $α, $(θ...))))
                 elseif @capture(x, y_ ~ f_(X_ * β_ + α_, θ__))
-                    return :(target = ProbabilityModels.vadd(target, $(Symbol(f,:_fmadd))($y, $X, $β, $α, $(θ...))))
+                    return :(target = ProbabilityModels.vadd(target, $f($y, $X, $β, $α, $(θ...))))
                 # elseif @capture(x, y_ ~ f_(α_ - X_ * β_, θ__))
                 #     return :(target = vadd(target, $(Symbol(f,:_fnmadd))($y, $X, $β, $α, $(θ...))))
                 # elseif @capture(x, y_ ~ f_(X_ * β_ - α_, θ__))
