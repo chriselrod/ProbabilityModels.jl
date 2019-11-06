@@ -11,7 +11,7 @@ using VectorizedRNG: AbstractPCG, PtrPCG
 using MacroTools: postwalk, prewalk, @capture, @q
 
 using ReverseDiffExpressionsBase:
-    RESERVED_INCREMENT_SEED_RESERVED,
+    RESERVED_INCREMENT_SEED_RESERVED!,
     initialize_target, uninitialized,
     ∂mul, ∂getindex
 
