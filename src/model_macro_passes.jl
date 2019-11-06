@@ -203,13 +203,32 @@ end
 #     end, vars
 # end
 
-function uninitialize_first_seed_updates(expr)::Expr
+function uninitialize_first_seed_updates(expr, aliases::Union{Nothing,ReverseDiffExpressions.BiMap} = nothing)::Expr
     initialized_seeds = Set{Symbol}()
     postwalk(expr) do ex
         if @capture(ex, ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED!(S_, args__))
             S::Symbol 
-            S ∈ initialized_seeds && return ex
+            if S ∈ initialized_seeds
+                # we need to check that S does not have uninitialized aliases
+                if aliases !== nothing
+                    for s ∈ aliases[S]
+                        if s ∉ initialized_seeds
+                            push!(initialized_seeds, s)
+                            ex = quote
+                                ProbabilityModels.zero_initialize!($s)
+                                $ex
+                            end
+                        end
+                    end
+                end
+                return ex
+            end
             push!(initialized_seeds, S)
+            if aliases !== nothing
+                for s ∈ aliases[S]
+                    push!(initialized_seeds, s)
+                end
+            end
             Expr(:call, :(ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED!), :(ProbabilityModels.uninitialized($S)), args...)
         else
             ex
@@ -618,7 +637,7 @@ function generate_generated_funcs_expressions(model_name, expr)
         if return_partials
             processing = quote
                 $(verbose_models() ? :(println("Before differentiating, the model is: \n", ProbabilityModels.PaddedMatrices.simplify_expr(expr), "\n\n")) : nothing)
-                ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, :ProbabilityModels, $(verbose_models()))
+                aliases = ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, :ProbabilityModels, $(verbose_models()))
                 expr_out = quote
                     target = ProbabilityModels.initialize_target($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
@@ -631,7 +650,8 @@ function generate_generated_funcs_expressions(model_name, expr)
                         $(Symbol("##scalar_target##")) = typemin($T_sym)
                     end
                     $(Symbol("##scalar_target##"))
-                end |> ProbabilityModels.uninitialize_first_seed_updates
+                end
+                expr_out = ProbabilityModels.uninitialize_first_seed_updates(expr_out, aliases)
             end
         else
             processing = quote
