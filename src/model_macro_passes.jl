@@ -42,17 +42,8 @@ function translate_sampling_statements(expr)::Expr
                 return :(target = ProbabilityModels.vadd(target, $(θ0...)))
             end
             return :(target = ProbabilityModels.vadd(target, $f0($y0, $(θ0...))))
-#            return :(target = DistributionParameters.add(target, $f($y, $(θ...))))
         elseif @capture(x, a_ += b_)
             return :($a = $a + $b)
-        # elseif @capture(x, identity(a_))
-            # return a
-        # elseif @capture(x, a_:b_)
-        #     if a isa Integer && b isa Integer
-        #         return :(ProbabilityModels.PaddedMatrices.Static{($a,$b)}())
-        #     else
-        #         return x
-        #     end
         else
             return x
         end
@@ -210,7 +201,7 @@ function uninitialize_first_seed_updates(expr, aliases::Union{Nothing,ReverseDif
             S::Symbol 
             if S ∈ initialized_seeds
                 # we need to check that S does not have uninitialized aliases
-                if aliases !== nothing
+                if aliases !== nothing && S ∈ keys(aliases)
                     for s ∈ aliases[S]
                         if s ∉ initialized_seeds
                             push!(initialized_seeds, s)
@@ -224,7 +215,7 @@ function uninitialize_first_seed_updates(expr, aliases::Union{Nothing,ReverseDif
                 return ex
             end
             push!(initialized_seeds, S)
-            if aliases !== nothing
+            if aliases !== nothing && S ∈ keys(aliases)
                 for s ∈ aliases[S]
                     push!(initialized_seeds, s)
                 end
@@ -365,7 +356,7 @@ function constant_drop_pass!(first_pass, expr, tracked_vars, verbose = false)
                     printstring = "distribution $f (ret: $out): "
                     push!(first_pass.args, :(println($printstring)))
                 end
-                push!(first_pass.args, :($out = ProbabilityModels.ProbabilityDistributions.$f($(A...), Val{$track_tup}())))
+                push!(first_pass.args, :($out = ProbabilityModels.ProbabilityDistributions.$f(Val{$track_tup}(), $(A...))))
                 verbose && push!(first_pass.args, :(println($out)))
             else
                 for a ∈ A
@@ -641,9 +632,9 @@ function generate_generated_funcs_expressions(model_name, expr)
                 expr_out = quote
                     target = ProbabilityModels.initialize_target($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
-                    $first_pass
                     $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θparameter##m")))
-                    $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
+                    $first_pass
+                    # $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
                     $second_pass
                     $(Symbol("##scalar_target##")) = ProbabilityModels.vsum($(name_dict[:target]))
                     if !isfinite($(Symbol("##scalar_target##"))) || !all(isfinite, $(Symbol("##∂θparameter##m")))

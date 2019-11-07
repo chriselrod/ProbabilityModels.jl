@@ -13,7 +13,7 @@ using MacroTools: postwalk, prewalk, @capture, @q
 using ReverseDiffExpressionsBase:
     RESERVED_INCREMENT_SEED_RESERVED!,
     initialize_target, uninitialized,
-    ∂mul, ∂getindex
+    ∂mul, ∂getindex, alloc_adjoint
 
 using PaddedMatrices:
     AbstractFixedSizeVector,
@@ -33,32 +33,24 @@ export @model, MCMCChainSummary,
     logdensity, logdensity_and_gradient,
     logdensity_and_gradient!, stackpointer
 
-# function logdensity_and_gradient! end
-
-# const UNALIGNED_POINTER = Ref{Ptr{Cvoid}}()
 const MMAP = Ref{Matrix{UInt8}}()
 const STACK_POINTER_REF = Ref{StackPointer}()
 const LOCAL_STACK_SIZE = Ref{Int}()
 const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
 const NTHREADS = Ref{Int}()
 
-
-# LogDensityProblems.capabilities(::Type{<:AbstractProbabilityModel}) = LogDensityProblems.LogDensityOrder{1}()
-# `@inline` so that we can avoid the allocation for tuple creation
-# additionally, the logdensity(_and_gradient!) method itself will not in general
-# be inlined. There is only a single method (on PtrVectors) defined,
-# so that the functions will only have to be compiled once per AbstractProbabilityModel.
-
-
+"""
+For debugging, you can set
+ProbabilityModels.verbose_models() = true
+and then recompile your model. In doing so, it will give verbose output, hopefully helping you identify the problem(s).
+"""
 verbose_models() = false
-
 
 include("logdensity.jl")
 include("model_macro_passes.jl")
 include("mcmc_chains.jl")
 include("rng.jl")
 include("check_gradient.jl")
-
 
 function __init__()
     NTHREADS[] = Threads.nthreads()
