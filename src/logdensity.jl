@@ -30,10 +30,10 @@ end
     θ::AbstractVector{T},
     sptr::StackPointer = STACK_POINTER_REF[]
 ) where {D,T}
-    @boundscheck max(length(∇),length(θ)) > D && PaddedMatrices.ThrowBoundsError()
+    @boundscheck min(length(∇),length(θ)) < D && PaddedMatrices.ThrowBoundsError()
     GC.@preserve ∇ θ begin
-        ∇ptr = PtrVector{D,T,D}(pointer(∇));
-        θptr = PtrVector{D,T,D}(pointer(θ));
+        ∇ptr = PtrVector{D,T,D}(pointer(∇))
+        θptr = PtrVector{D,T,D}(pointer(θ))
         lp = logdensity_and_gradient!(∇ptr, ℓ, θptr, sptr)
     end
     lp

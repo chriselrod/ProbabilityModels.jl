@@ -194,38 +194,6 @@ end
 #     end, vars
 # end
 
-function uninitialize_first_seed_updates(expr, aliases::Union{Nothing,ReverseDiffExpressions.BiMap} = nothing)::Expr
-    initialized_seeds = Set{Symbol}()
-    postwalk(expr) do ex
-        if @capture(ex, ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED!(S_, args__))
-            S::Symbol 
-            if S ∈ initialized_seeds
-                # we need to check that S does not have uninitialized aliases
-                if aliases !== nothing && S ∈ keys(aliases)
-                    for s ∈ aliases[S]
-                        if s ∉ initialized_seeds
-                            push!(initialized_seeds, s)
-                            ex = quote
-                                ProbabilityModels.zero_initialize!($s)
-                                $ex
-                            end
-                        end
-                    end
-                end
-                return ex
-            end
-            push!(initialized_seeds, S)
-            if aliases !== nothing && S ∈ keys(aliases)
-                for s ∈ aliases[S]
-                    push!(initialized_seeds, s)
-                end
-            end
-            Expr(:call, :(ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED!), :(ProbabilityModels.uninitialized($S)), args...)
-        else
-            ex
-        end
-    end
-end
 
 # """
 # Translates first update statements into assignments.
@@ -336,7 +304,7 @@ end
 """
 This pass is for when we aren't taking partial derivatives.
 """
-function constant_drop_pass!(first_pass, expr, tracked_vars, verbose = false)
+function constant_drop_pass!(first_pass::Vector{Any}, expr, tracked_vars, verbose = false)
     for x ∈ expr.args
         if @capture(x, for i_ ∈ iter_ body_ end)
             throw("Loops not yet supported!")
@@ -354,10 +322,10 @@ function constant_drop_pass!(first_pass, expr, tracked_vars, verbose = false)
                 end
                 if verbose
                     printstring = "distribution $f (ret: $out): "
-                    push!(first_pass.args, :(println($printstring)))
+                    push!(first_pass, :(println($printstring)))
                 end
-                push!(first_pass.args, :($out = ProbabilityModels.ProbabilityDistributions.$f(Val{$track_tup}(), $(A...))))
-                verbose && push!(first_pass.args, :(println($out)))
+                push!(first_pass, :($out = ProbabilityModels.ProbabilityDistributions.$f(Val{$track_tup}(), $(A...))))
+                verbose && push!(first_pass, :(println($out)))
             else
                 for a ∈ A
                     if a ∈ tracked_vars
@@ -366,9 +334,9 @@ function constant_drop_pass!(first_pass, expr, tracked_vars, verbose = false)
                     end
                 end
                 if f == :add
-                    push!(first_pass.args, :( $out = ProbabilityModels.vadd($(A...))))
+                    push!(first_pass, :( $out = ProbabilityModels.vadd($(A...))))
                 else
-                    push!(first_pass.args, x)
+                    push!(first_pass, x)
                 end
             end
         elseif @capture(x, out_ = A__)
@@ -378,9 +346,9 @@ function constant_drop_pass!(first_pass, expr, tracked_vars, verbose = false)
                     break
                 end
             end
-            push!(first_pass.args, x)            
+            push!(first_pass, x)            
         else
-            push!(first_pass.args, x)
+            push!(first_pass, x)
         end
     end
     nothing
@@ -568,8 +536,8 @@ function generate_generated_funcs_expressions(model_name, expr)
             TLθ = $Nparam
             return_partials = false
             model_parameters = Symbol[]
-            first_pass = quote end
-            second_pass = quote end
+            first_pass = Any[]
+            second_pass = Any[]
         end
     end
     θq_valuegradient = quote
@@ -579,11 +547,11 @@ function generate_generated_funcs_expressions(model_name, expr)
                         $θ::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
                     ) where {$Nparam, $T, $(variable_type_names...)}
-            first_pass = quote end
+            model_parameters = Symbol[]
+            first_pass = Any[]
+            second_pass = Any[]
             TLθ = $Nparam
             return_partials = true
-            model_parameters = Symbol[]
-            second_pass = quote end
         end
     end
     for (θq, return_partials) ∈ ((θq_value, false), (θq_valuegradient, true))
@@ -605,55 +573,51 @@ function generate_generated_funcs_expressions(model_name, expr)
                 if $(variable_type_names[i]) <: Val
                     push!(model_parameters, $(QuoteNode(variables[i])))
                   ProbabilityModels.DistributionParameters.load_parameter!(
-                      first_pass.args, second_pass.args,
+                      first_pass, second_pass,
                       $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])),
                       $return_partials, ProbabilityModels, Symbol("##stack_pointer##"), true, false
                   )
                 elseif $(variable_type_names[i]) <: ProbabilityModels.DistributionParameters.MissingDataArray
                     push!(model_parameters, $(QuoteNode(variables[i])))
-                    push!(first_pass.args, $load_incomplete_data)
+                    push!(first_pass, $load_incomplete_data)
                   ProbabilityModels.DistributionParameters.load_parameter!(
-                      first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
+                      first_pass, second_pass, $(QuoteNode(variables[i])), ($(variable_type_names[i])),
                       $return_partials, ProbabilityModels, Symbol("##stack_pointer##"), true, false
                   )
                 elseif $(variable_type_names[i]) <: Union{Array,SubArray{<:Any,<:Any,<:Array}}
-                  push!(first_pass.args, $load_data_dynamic_ptr_array)
+                  push!(first_pass, $load_data_dynamic_ptr_array)
                 elseif $(variable_type_names[i]) <: ProbabilityModels.PaddedMatrices.AbstractMutableFixedSizeArray
-                  push!(first_pass.args, $load_data_ptr_array)
+                  push!(first_pass, $load_data_ptr_array)
                 else
-                    push!(first_pass.args, $load_data)
+                    push!(first_pass, $load_data)
                 end
             end)
         end
         if return_partials
             processing = quote
-                $(verbose_models() ? :(println("Before differentiating, the model is: \n", ProbabilityModels.PaddedMatrices.simplify_expr(expr), "\n\n")) : nothing)
-                aliases = ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, :ProbabilityModels, $(verbose_models()))
+                $(verbose_models() > 0 ? :(println("Before differentiating, the model is: \n", ProbabilityModels.PaddedMatrices.simplify_expr(expr), "\n\n")) : nothing)
+                ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, :ProbabilityModels, $(verbose_models() > 1))
                 expr_out = quote
                     target = ProbabilityModels.initialize_target($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
                     $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θparameter##m")))
-                    $first_pass
-                    # $(Symbol("###seed###", name_dict[:target])) = ProbabilityModels.One()
-                    $second_pass
-                    $(Symbol("##scalar_target##")) = ProbabilityModels.vsum($(name_dict[:target]))
-                    if !isfinite($(Symbol("##scalar_target##"))) || !all(isfinite, $(Symbol("##∂θparameter##m")))
-                        $(Symbol("##scalar_target##")) = typemin($T_sym)
-                    end
-                    $(Symbol("##scalar_target##"))
                 end
-                expr_out = ProbabilityModels.uninitialize_first_seed_updates(expr_out, aliases)
+                append!(expr_out.args, first_pass)
+                append!(expr_out.args, second_pass)
+                push!(expr_out.args, Expr(:(=), Symbol("##scalar_target##"), :(ProbabilityModels.vsum($(name_dict[:target])))))
+                push!(expr_out.args, :((isfinite($(Symbol("##scalar_target##"))) && all(isfinite, $(Symbol("##∂θparameter##m")))) || ($(Symbol("##scalar_target##")) = typemin($T_sym))))
+                push!(expr_out.args, Symbol("##scalar_target##"))
             end
         else
             processing = quote
-                ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars, $(verbose_models()))
+                ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars, $(verbose_models() > 1))
                 expr_out = quote
                     target = ProbabilityModels.initialize_target($T_sym)
                     $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
-                    $first_pass
-                    $(Symbol("##scalar_target##")) = ProbabilityModels.vsum($(name_dict[:target]))
-                    isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : typemin($T_sym)
                 end
+                append!(expr_out.args, first_pass)
+                push!(expr_out.args, Expr(:(=), Symbol("##scalar_target##"), :(ProbabilityModels.vsum($(name_dict[:target])))))
+                push!(expr_out.args, :(isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : typemin($T_sym)))
             end
         end
         push!(θq_body, quote
@@ -665,9 +629,9 @@ function generate_generated_funcs_expressions(model_name, expr)
             $processing
               final_quote = ProbabilityModels.StackPointers.stack_pointer_pass(
                   expr_out, $(QuoteNode(Symbol("##stack_pointer##"))),
-                  nothing, $(verbose_models()), :ProbabilityModels
+                  nothing, $(verbose_models() > 1), :ProbabilityModels
               ) |> ProbabilityModels.PaddedMatrices.simplify_expr
-              $(verbose_models()) && println(final_quote)
+              $(verbose_models() > 0) && println(final_quote)
               quote
                   @inbounds begin
                       $final_quote
@@ -694,5 +658,18 @@ macro model(model_name, expr)
         println($printstring)
     end)
 end
+# macro show_model_expr(model_name, expr)
+#     struct_quote, struct_kwarg_quote, θq_value, θq_valuegradient, constrain_q, cvq, pn, clq, variables = generate_generated_funcs_expressions(model_name, expr)
+#     @show struct_quote
+#     @show struct_kwarg_quote
+#     @show θq_value
+#     @show θq_valuegradient
+#     @show constrain_q
+#     @show cvq
+#     @show, pn
+#     @show clq
+#     @show variables
+#     nothing
+# end
 
 # @specialize

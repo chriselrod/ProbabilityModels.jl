@@ -40,11 +40,14 @@ const GLOBAL_PCGs = Vector{PtrPCG{4}}(undef,0)
 const NTHREADS = Ref{Int}()
 
 """
-For debugging, you can set
-ProbabilityModels.verbose_models() = true
-and then recompile your model. In doing so, it will give verbose output, hopefully helping you identify the problem(s).
+For debugging, you can set the verbosity level to 0 (default), 1, or 2
+ProbabilityModels.verbose_models() = 1
+and then recompile your model.
+verbose_models() == 0 will not print messages.
+verbose_models() > 0 will print generated function output.
+verbose_models() > 1 will print output while evaluating the logdensity (and gradients).
 """
-verbose_models() = false
+verbose_models() = 0
 
 include("logdensity.jl")
 include("model_macro_passes.jl")
