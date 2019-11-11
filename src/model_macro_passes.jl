@@ -523,7 +523,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     θ = Symbol("##θ_parameter_vector##")#gensym(:θ)
     Tθ = gensym(:Tθ)
     constrain_quote, cvq, pn, clq  = load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T)
-    base_stack_pointer = ProbabilityModels.STACK_POINTER_REF[]# + 9VectorizationBase.REGISTER_SIZE
+    base_stack_pointer = STACK_POINTER_REF[]# + 9VectorizationBase.REGISTER_SIZE
     stack_pointer_expr = NTHREADS[] == 1 ? base_stack_pointer : :($base_stack_pointer + (Threads.threadid()-1)*$(LOCAL_STACK_SIZE[]))
     # we have to split these, because of dispatch ambiguity errors
     θq_value = quote
@@ -531,10 +531,10 @@ function generate_generated_funcs_expressions(model_name, expr)
                     $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                     $θ::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                     $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
-            ) where {$Nparam, $T, $(variable_type_names...)}
+        ) where {$Nparam, $T, $(variable_type_names...)}
 
-            TLθ = $Nparam
             return_partials = false
+            TLθ = $Nparam
             model_parameters = Symbol[]
             first_pass = Any[]
             second_pass = Any[]
@@ -547,11 +547,12 @@ function generate_generated_funcs_expressions(model_name, expr)
                         $θ::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
         ) where {$Nparam, $T, $(variable_type_names...)}
+
+            return_partials = true
             TLθ = $Nparam
             model_parameters = Symbol[]
             first_pass = Any[]
             second_pass = Any[]
-            return_partials = true
         end
     end
     for (θq, return_partials) ∈ ((θq_value, false), (θq_valuegradient, true))
