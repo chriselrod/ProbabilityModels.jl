@@ -546,11 +546,11 @@ function generate_generated_funcs_expressions(model_name, expr)
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                         $θ::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
-                    ) where {$Nparam, $T, $(variable_type_names...)}
+        ) where {$Nparam, $T, $(variable_type_names...)}
+            TLθ = $Nparam
             model_parameters = Symbol[]
             first_pass = Any[]
             second_pass = Any[]
-            TLθ = $Nparam
             return_partials = true
         end
     end
