@@ -1,6 +1,6 @@
 module ProbabilityModels
 
-using MacroTools, Mmap,
+using MacroTools, Mmap, LinearAlgebra,
     VectorizationBase, SIMDPirates, SLEEFPirates,
     LoopVectorization, VectorizedRNG,
     PaddedMatrices, StructuredMatrices,
@@ -28,10 +28,11 @@ import QuasiNewtonMethods:
 
 import DistributionParameters: parameter_names
 import MCMCChainSummaries: MCMCChainSummary
+using DistributionParameters: Bounds
 
 export @model, MCMCChainSummary,
     logdensity, logdensity_and_gradient,
-    logdensity_and_gradient!, stackpointer
+    logdensity_and_gradient!, stackpointer, Bounds
 
 const MMAP = Ref{Matrix{UInt8}}()
 const STACK_POINTER_REF = Ref{StackPointer}()

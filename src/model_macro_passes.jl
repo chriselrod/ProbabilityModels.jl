@@ -466,7 +466,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     stride = gensym(:LDA)
     L1 = gensym(:L)
     L2 = gensym(:L)
-    T = gensym(:T)
+    T = Symbol("##element_type##")
 
     var_vartype_pairs = [:( $(variables[i])::$(variable_type_names[i]) ) for i ∈ eachindex(variables)]
     struct_quote = quote
@@ -519,8 +519,8 @@ function generate_generated_funcs_expressions(model_name, expr)
     # This allows one to optionally override in the case of a single evaluation.
     # Additionally, it will throw an error if one of the required fields was not defined.
     V = gensym(:V)
-    ℓ = gensym(:ℓ)
-    θ = gensym(:θ)
+    ℓ = Symbol("####ℓ#data####")# gensym(:ℓ)
+    θ = Symbol("##θ_parameter_vector##")#gensym(:θ)
     Tθ = gensym(:Tθ)
     constrain_quote, cvq, pn, clq  = load_and_constrain_quote(ℓ, model_name, variables, variable_type_names, θ, Tθ, T)
     base_stack_pointer = ProbabilityModels.STACK_POINTER_REF[]# + 9VectorizationBase.REGISTER_SIZE
@@ -542,7 +542,7 @@ function generate_generated_funcs_expressions(model_name, expr)
     end
     θq_valuegradient = quote
         @generated function ProbabilityModels.logdensity_and_gradient!(
-                        $(Symbol("##∂θparameter##m"))::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
+                        $(Symbol("##∂θ_parameter_vector##"))::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                         $θ::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
@@ -598,35 +598,32 @@ function generate_generated_funcs_expressions(model_name, expr)
                 $(verbose_models() > 0 ? :(println("Before differentiating, the model is: \n", ProbabilityModels.PaddedMatrices.simplify_expr(expr), "\n\n")) : nothing)
                 ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, :ProbabilityModels, $(verbose_models() > 1))
                 expr_out = quote
-                    target = ProbabilityModels.initialize_target($T_sym)
-                    $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
-                    $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θparameter##m")))
+                    target = ProbabilityModels.initialize_target($(Symbol("##element_type##")))
+                    $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##θ_parameter_vector##")))
+                    $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θ_parameter_vector##")))
                 end
                 append!(expr_out.args, first_pass)
                 append!(expr_out.args, second_pass)
                 push!(expr_out.args, Expr(:(=), Symbol("##scalar_target##"), :(ProbabilityModels.vsum($(name_dict[:target])))))
-                push!(expr_out.args, :((isfinite($(Symbol("##scalar_target##"))) && all(isfinite, $(Symbol("##∂θparameter##m")))) || ($(Symbol("##scalar_target##")) = typemin($T_sym))))
+                push!(expr_out.args, :((isfinite($(Symbol("##scalar_target##"))) && all(isfinite, $(Symbol("##∂θ_parameter_vector##")))) || ($(Symbol("##scalar_target##")) = typemin($(Symbol("##element_type##"))))))
                 push!(expr_out.args, Symbol("##scalar_target##"))
             end
         else
             processing = quote
                 ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars, $(verbose_models() > 1))
                 expr_out = quote
-                    target = ProbabilityModels.initialize_target($T_sym)
-                    $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($θ_sym)
+                    target = ProbabilityModels.initialize_target($(Symbol("##element_type##")))
+                    $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##θ_parameter_vector##")))
                 end
                 append!(expr_out.args, first_pass)
                 push!(expr_out.args, Expr(:(=), Symbol("##scalar_target##"), :(ProbabilityModels.vsum($(name_dict[:target])))))
-                push!(expr_out.args, :(isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : typemin($T_sym)))
+                push!(expr_out.args, :(isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : typemin($(Symbol("##element_type##")))))
             end
         end
         push!(θq_body, quote
             tracked_vars = Set(model_parameters)
               name_dict = Dict(:target => :target)
-            θ_sym = $(QuoteNode(θ)) # This creates our symbol θ
-            T_sym = $(QuoteNode(T))
-            ℓ_sym = $(QuoteNode(ℓ))
-            $processing
+              $processing
               final_quote = ProbabilityModels.StackPointers.stack_pointer_pass(
                   expr_out, $(QuoteNode(Symbol("##stack_pointer##"))),
                   nothing, $(verbose_models() > 1), :ProbabilityModels
