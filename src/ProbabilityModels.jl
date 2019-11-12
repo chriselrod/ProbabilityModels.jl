@@ -1,13 +1,12 @@
 module ProbabilityModels
 
-using MacroTools, Mmap, LinearAlgebra,
-    VectorizationBase, SIMDPirates, SLEEFPirates,
+using MacroTools, LinearAlgebra, VectorizationBase,
+    SIMDPirates, SLEEFPirates,
     LoopVectorization, VectorizedRNG,
     PaddedMatrices, StructuredMatrices,
     DistributionParameters, ProbabilityDistributions,
     ReverseDiffExpressions, StackPointers
 
-using VectorizedRNG: AbstractPCG, PtrPCG
 using MacroTools: postwalk, prewalk, @capture, @q
 
 using ReverseDiffExpressionsBase:
@@ -29,7 +28,7 @@ import QuasiNewtonMethods:
 import DistributionParameters: parameter_names
 import MCMCChainSummaries: MCMCChainSummary
 using DistributionParameters: Bounds
-using InplaceDHMC: STACK_POINTER_REF, LOCAL_STACK_SIZE,
+using InplaceDHMC: STACK_POINTER_REF, LOCAL_STACK_SIZE, NTHREADS,
     mcmc_with_warmup, threaded_mcmc
 
 export @model, MCMCChainSummary,
