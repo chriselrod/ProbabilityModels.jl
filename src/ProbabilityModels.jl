@@ -34,7 +34,8 @@ using InplaceDHMC: STACK_POINTER_REF, LOCAL_STACK_SIZE, NTHREADS,
 export @model, MCMCChainSummary,
     logdensity, logdensity_and_gradient,
     logdensity_and_gradient!, Bounds,
-    mcmc_with_warmup, threaded_mcmc
+    mcmc_with_warmup, threaded_mcmc,
+    RealFloat, RealVector, RealMatrix, RealArray, Bounds
     
 """
 For debugging, you can set the verbosity level to 0 (default), 1, or 2
