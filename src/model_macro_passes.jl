@@ -552,7 +552,7 @@ function generate_generated_funcs_expressions(model_name, expr)
                         $(Symbol("##∂θ_parameter_vector##"))::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
                         $ℓ::$(model_name){$Nparam, $(variable_type_names...)},
                         $θ::ProbabilityModels.PtrVector{$Nparam, $T, $Nparam, false},
-                        $(Symbol("##stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
+                        $(Symbol("##initial_stack_pointer##"))::ProbabilityModels.StackPointer = $stack_pointer_expr
         ) where {$Nparam, $T, $(variable_type_names...)}
 
             return_partials = true
@@ -607,8 +607,12 @@ function generate_generated_funcs_expressions(model_name, expr)
                 ProbabilityModels.ReverseDiffExpressions.reverse_diff_pass!(first_pass, second_pass, expr, tracked_vars, :ProbabilityModels, $(verbose_models() > 1))
                 expr_out = quote
                     target = ProbabilityModels.initialize_target($(Symbol("##element_type##")))
+                    # $(Symbol("##stack_pointer##")) = $(Symbol("##initial_stack_pointer##"))
+                    $(Symbol("##stack_pointer##")) = ProbabilityModels.StackPointer(ProbabilityModels.SIMDPirates.noalias!(pointer($(Symbol("##initial_stack_pointer##")), $(Symbol("##element_type##")))))
                     $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##θ_parameter_vector##")))
-                    $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θ_parameter_vector##")))
+                    # $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable(ProbabilityModels.SIMDPirates.noalias!(pointer($(Symbol("##θ_parameter_vector##")))))
+                    # $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θ_parameter_vector##")))
+                    $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable(ProbabilityModels.SIMDPirates.noalias!(pointer($(Symbol("##∂θ_parameter_vector##")))))
                 end
                 append!(expr_out.args, first_pass)
                 append!(expr_out.args, second_pass)
