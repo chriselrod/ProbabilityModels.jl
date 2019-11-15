@@ -65,7 +65,7 @@ end
     ℓ::AbstractProbabilityModel{D},
     θ::AbstractVector{T}
 ) where {D,T}
-    @boundscheck length(θ) > D && PaddedMatrices.ThrowBoundsError()
+    @boundscheck length(θ) == D || PaddedMatrices.ThrowBoundsError()
     ∇ = PtrVector{D,T,D}(pointer(sp,T))
     sp += VectorizationBase.align(D*sizeof(T))
     sp, (logdensity_and_gradient!(∇, ℓ, θ, sp), ∇)

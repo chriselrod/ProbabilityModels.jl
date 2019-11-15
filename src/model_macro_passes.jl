@@ -375,7 +375,9 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
     end
     v = Symbol("##storage_vector##")
     θq_vec = quote
-        @generated function ProbabilityModels.DistributionParameters.constrain!($v::AbstractVector{$T}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}) where {$Nparam, $T, $(variable_type_names...)}
+        @generated function ProbabilityModels.DistributionParameters.constrain!(
+            $v::AbstractVector{$T}, $ℓ::$(model_name){$Nparam, $(variable_type_names...)}, $θ::AbstractVector{$T}
+        ) where {$Nparam, $T, $(variable_type_names...)}
             return_partials = false
             first_pass = quote end
             push!(first_pass.args, Expr(:(=), Symbol("##stack_pointer##"), Expr(:call, :(ProbabilityModels.StackPointer), Expr(:call, :pointer, Symbol("##storage_vector##")))))
@@ -438,7 +440,7 @@ function load_and_constrain_quote(ℓ, model_name, variables, variable_type_name
         push!(θq_vec_body, quote
             if $(variable_type_names[i]) <: Val
                 ProbabilityModels.DistributionParameters.load_parameter!(first_pass.args, second_pass.args, $(QuoteNode(variables[i])), ProbabilityModels.extract_typeval($(variable_type_names[i])), false, ProbabilityModels, Symbol("##stack_pointer##"), false, true)
-                if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: DistributionParameters.RealFloat
+                if ProbabilityModels.extract_typeval($(variable_type_names[i])) <: ProbabilityModels.DistributionParameters.RealFloat
                     push!(first_pass.args, Expr(:call, :(ProbabilityModels.store!),
                                           Expr(:call, :pointer, Symbol("##stack_pointer##"), $(QuoteNode(T))), $(QuoteNode(variables[i]))))
                     push!(first_pass.args, Expr(:(+=), Symbol("##stack_pointer##"), Expr(:call, :sizeof, $(QuoteNode(T)) )))
@@ -617,12 +619,14 @@ function generate_generated_funcs_expressions(model_name, expr)
         else
             processing = quote
                 ProbabilityModels.constant_drop_pass!(first_pass, expr, tracked_vars, $(verbose_models() > 1))
+                pushfirst!(first_pass, Expr(:(=), Symbol("##initial_stack_pointer##"), Expr(:call, :pointer, Symbol("##stack_pointer##"))))
                 expr_out = quote
                     target = ProbabilityModels.initialize_target($(Symbol("##element_type##")))
                     $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##θ_parameter_vector##")))
                 end
                 append!(expr_out.args, first_pass)
                 push!(expr_out.args, Expr(:(=), Symbol("##scalar_target##"), :(ProbabilityModels.vsum($(name_dict[:target])))))
+                push!(expr_out.args, Expr(:call, :(ProbabilityModels.lifetime_end!), Symbol("##initial_stack_pointer##"), Val{8192}()))
                 push!(expr_out.args, :(isfinite($(Symbol("##scalar_target##"))) ? $(Symbol("##scalar_target##")) : typemin($(Symbol("##element_type##")))))
             end
         end

@@ -30,6 +30,7 @@ import MCMCChainSummaries: MCMCChainSummary
 using DistributionParameters: Bounds
 using InplaceDHMC: STACK_POINTER_REF, LOCAL_STACK_SIZE, NTHREADS,
     mcmc_with_warmup, threaded_mcmc
+using SIMDPirates: lifetime_start!, lifetime_end!
 
 export @model, MCMCChainSummary,
     logdensity, logdensity_and_gradient,
