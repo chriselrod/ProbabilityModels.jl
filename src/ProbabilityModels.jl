@@ -12,7 +12,8 @@ using MacroTools: postwalk, prewalk, @capture, @q
 using ReverseDiffExpressionsBase:
     RESERVED_INCREMENT_SEED_RESERVED!,
     initialize_target, uninitialized,
-    ∂mul, ∂getindex, alloc_adjoint
+    ∂mul, ∂getindex, alloc_adjoint,
+    ∂evaluate
 
 using PaddedMatrices:
     AbstractFixedSizeVector,
