@@ -53,5 +53,13 @@ include("logdensity.jl")
 include("model_macro_passes.jl")
 include("mcmc_chains.jl")
 include("check_gradient.jl")
+# May shave off 2/30 seconds or so...
+# Would be better to actually work on compile times.
+@static if VERSION > v"1.3.0-rc1"
+    include("precompile.jl")
+    function __init__()
+        precomp()
+    end
+end
 
 end # module

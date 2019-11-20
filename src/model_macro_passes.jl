@@ -486,6 +486,8 @@ function generate_generated_funcs_expressions(model_name, expr)
         quote
             $tlag = Threads.@spawn precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
             $tl = Threads.@spawn precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+            Threads.@spawn precompile(ProbabilityModels.InplaceDHMC.mcmc_with_warmup!, (
+                ProbabilityModels.VectorizedRNG.PtrPCG{4}, ProbabilityModels.StackPointer, ProbabilityModels.PaddedMatrices.DynamicPtrVector{Float64}, ProbabilityModels.PaddedMatrices.DynamicPtrVector{ProbabilityModels.InplaceDHMC.TreeStatisticsNUTS}, $model_name{$Nparam, $(variable_type_names...)}, Int))
             wait($tlag); wait($tl)
         end
     else
