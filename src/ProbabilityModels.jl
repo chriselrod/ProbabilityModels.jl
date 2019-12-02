@@ -30,14 +30,15 @@ import DistributionParameters: parameter_names
 import MCMCChainSummaries: MCMCChainSummary
 using DistributionParameters: Bounds
 using InplaceDHMC: STACK_POINTER_REF, LOCAL_STACK_SIZE, NTHREADS,
-    mcmc_with_warmup, threaded_mcmc
+    mcmc_with_warmup, threaded_mcmc, NoProgressReport
 using SIMDPirates: lifetime_start!, lifetime_end!
 
 export @model, MCMCChainSummary,
     logdensity, logdensity_and_gradient,
     logdensity_and_gradient!, Bounds,
     mcmc_with_warmup, threaded_mcmc,
-    RealFloat, RealVector, RealMatrix, RealArray, Bounds
+    RealFloat, RealVector, RealMatrix, RealArray,
+    Bounds, NoProgressReport
     
 """
 For debugging, you can set the verbosity level to 0 (default), 1, or 2
@@ -55,11 +56,9 @@ include("mcmc_chains.jl")
 include("check_gradient.jl")
 # May shave off 2/30 seconds or so...
 # Would be better to actually work on compile times.
-@static if VERSION > v"1.3.0-rc1"
-    include("precompile.jl")
-    function __init__()
-        precomp()
-    end
-end
+# @static if VERSION > v"1.3.0-rc1"
+# end
+include("precompile.jl")
+_precompile_()
 
 end # module
