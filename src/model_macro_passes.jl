@@ -481,20 +481,25 @@ function generate_generated_funcs_expressions(model_name, expr)
             $(var_vartype_pairs...)
         end
     end
-    precomp = gensym(:precompile); tlag = gensym(:tlag); tl = gensym(:tl)
-    precomp_quote = if VERSION >= v"1.3.0-alpha.0" && ProbabilityModels.NTHREADS[] > 1
-        quote
-            $tlag = Threads.@spawn precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
-            $tl = Threads.@spawn precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
-            Threads.@spawn precompile(ProbabilityModels.InplaceDHMC.mcmc_with_warmup!, (
-                ProbabilityModels.VectorizedRNG.PtrPCG{4}, ProbabilityModels.StackPointer, ProbabilityModels.PaddedMatrices.DynamicPtrVector{Float64}, ProbabilityModels.PaddedMatrices.DynamicPtrVector{ProbabilityModels.InplaceDHMC.TreeStatisticsNUTS}, $model_name{$Nparam, $(variable_type_names...)}, Int))
-            wait($tlag); wait($tl)
-        end
-    else
-        quote
-            precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
-            precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
-        end
+    precomp = gensym(:precompile)
+    # precomp_quote = if VERSION >= v"1.3.0-alpha.0" && ProbabilityModels.NTHREADS[] > 1
+    #     tlag = gensym(:tlag); tl = gensym(:tl)
+    #     quote
+    #         $tlag = Threads.@spawn precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+    #         $tl = Threads.@spawn precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+    #         Threads.@spawn precompile(ProbabilityModels.InplaceDHMC.mcmc_with_warmup!, (
+    #             ProbabilityModels.VectorizedRNG.PtrPCG{4}, ProbabilityModels.StackPointer, ProbabilityModels.PaddedMatrices.DynamicPtrVector{Float64}, ProbabilityModels.PaddedMatrices.DynamicPtrVector{ProbabilityModels.InplaceDHMC.TreeStatisticsNUTS}, $model_name{$Nparam, $(variable_type_names...)}, Int))
+    #         wait($tlag); wait($tl)
+    #     end
+    # else
+    #     quote
+    #         precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+    #         precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+    #     end
+    # end
+    precomp_quote = quote
+        precompile(ProbabilityModels.logdensity_and_gradient!, (ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, $model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
+        precompile(ProbabilityModels.logdensity, ($model_name{$Nparam,$(variable_type_names...)}, ProbabilityModels.PtrVector{$Nparam, Float64, $Nparam, false}, ProbabilityModels.StackPointer))
     end
     struct_kwarg_quote = quote
         function $model_name{$Nparam}( $(var_vartype_pairs...)) where {$Nparam, $(variable_type_names...)}
