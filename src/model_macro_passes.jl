@@ -5,50 +5,100 @@ function determine_variables(expr)::Set{Symbol}
     ignored_symbols = Set{Symbol}()
     push!(ignored_symbols, :target)
     prewalk(expr) do x
-        if @capture(x, f_(ARGS__))
-            push!(ignored_symbols, f)
-        elseif isa(x, Symbol) && x ∉ ignored_symbols
-            push!(variables, x)
-        elseif @capture(x, LHS_ = RHS_)
-            push!(ignored_symbols, LHS)
-            return x
+        if x isa Symbol
+            x ∈ ignored_symbols || push!(variables, x)
+        elseif x isa Expr
+            if x.head === :(=)
+                LHS = first(x.args)
+                if LHS isa Symbol
+                    push!(ignored_symbols, LHS)
+                elseif LHS isa Expr && LHS.head === :ref
+                    push!(ignored_symbols, first(LHS.args))
+                end
+            elseif x.head === :call
+                push!(ignored_symbols, first(x.args))
+            end
         end
         return x
     end
     variables
 end
 
-function translate_sampling_statements(expr)::Expr
-    prewalk(expr) do x
-        if @capture(x, y0_ ~ f0_(θ0__))
-            # @show f, y, θ
-            if f0 ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
-                if @capture(x, y_ ~ f_(α_ + X_ * β_ , θ__))
-                    return :(target = ProbabilityModels.vadd(target, $f($y, $X, $β, $α, $(θ...))))
-                elseif @capture(x, y_ ~ f_(X_ * β_ + α_, θ__))
-                    return :(target = ProbabilityModels.vadd(target, $f($y, $X, $β, $α, $(θ...))))
-                # elseif @capture(x, y_ ~ f_(α_ - X_ * β_, θ__))
-                #     return :(target = vadd(target, $(Symbol(f,:_fnmadd))($y, $X, $β, $α, $(θ...))))
-                # elseif @capture(x, y_ ~ f_(X_ * β_ - α_, θ__))
-                #     return :(target = vadd(target, $(Symbol(f,:_fmsub))($y, $X, $β, $α, $(θ...))))
-                # elseif @capture(x, y_ ~ f_(- X_ * β_ - α_, θ__))
-                #     return :(target = vadd(target, $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...))))
-                # elseif @capture(x, y_ ~ f_( - α_ - X_ * β_, θ__))
-                #     return :(target = vadd(target, $(Symbol(f,:_fnmsub))($y, $X, $β, $α, $(θ...))))
-                end
-            elseif @capture(x, y2_ ~ Normal(X_ * β_, θ2__))
-                return :(target = ProbabilityModels.vadd(target, Normal($y2, $X, $β, $(θ2...))))
-            elseif f0 == :identity
-                return :(target = ProbabilityModels.vadd(target, $(θ0...)))
+function no_fmadd_dist_call(y, dargs)
+    dist = Expr(:call, first(dargs), y)
+    for i ∈ 2:length(dargs)
+        push!(dist.args, dargs[i])
+    end
+    Expr(:(=), :target, Expr(:call, Expr(:(.), :ProbabilityModels, QuoteNode(:vadd)), :target, dist))
+end
+function fmadd_dist_call(y, dargs)
+    farg₁ = dargs[2]
+    # farg₁ must be an expr of the form (X * β + α)
+    (farg₁ isa Expr && farg₁.head === :call) || return no_fmadd_dist_call(y, dargs)
+    args = farg₁.args
+    Nargs = length(args)
+    Nargs > 2 || return no_fmadd_dist_call(y, dargs)
+    if first(args) !== :+
+        if first(dargs) === :Normal && first(args) === :* && length(args) == 3
+            dist = Expr(:call, :Normal, y, args[2], args[3])
+            for i ∈ 3:length(dargs)
+                push!(dist.args, dargs[i])
             end
-            return :(target = ProbabilityModels.vadd(target, $f0($y0, $(θ0...))))
-        elseif @capture(x, a_ += b_)
-            return :($a = $a + $b)
+            Expr(:(=), :target, Expr(:call, Expr(:(.), :ProbabilityModels, QuoteNode(:vadd)), :target, dist))
         else
-            return x
+            return no_fmadd_dist_call(y, dargs)
         end
     end
+    j = 2
+    while j ≤ Nargs
+        argsⱼ = args[j]
+        if argsⱼ isa Expr && (first(argsⱼ.args) === :*) && length(argsⱼ.args) == 3
+            break
+        end
+        j += 1
+    end
+    j > Nargs && return no_fmadd_dist_call(y, dargs)
+    # if we're here, j is the index of the mul
+    argsⱼ = args[j].args
+    dist = Expr(:call, first(dargs), y, argsⱼ[2], argsⱼ[3])
+    if Nargs == 3
+        push!(dist.args, args[j == 2 ? 3 : 2])
+    else #Nargs > 3
+        for i ∈ 2:Nargs
+            i == j || push!(dist.args, args[i])
+        end
+    end
+    for i ∈ 3:length(dargs)
+        push!(dist.args, dargs[i])
+    end
+    Expr(:(=), :target, Expr(:call, Expr(:(.), :ProbabilityModels, QuoteNode(:vadd)), :target, dist))
 end
+function dist_call(x)
+    distcall::Expr = x.args[3]
+    distcall.head === :call || return x
+    length(distcall.args) < 2 && return x
+    y = x.args[2]
+    dargs = distcall.args
+    if first(dargs) ∈ ProbabilityDistributions.FMADD_DISTRIBUTIONS
+        fmadd_dist_call(y, dargs)
+    else
+        no_fmadd_dist_call(y, dargs)
+    end
+end
+
+function translate_sampling_statement(x)
+    x isa Expr || return x
+    if x.head === :(+=)
+        return Expr(:(=), x.args[1], Expr(:+, x.args[1], x.args[2]))
+    elseif x.head === :call && first(x.args) === :~
+        dist_call(x)
+    else
+        return x
+    end
+end
+
+translate_sampling_statements(expr::Expr)::Expr = prewalk(translate_sampling_statement, expr)
+
 # This does not work, because eval only looks in the current module, and doesn't accept a module argument (ie, Main)
 # function interpolate_globals(expr)::Expr
 #     postwalk(expr) do x
@@ -59,7 +109,7 @@ end
 #         end
 #     end
 # end
-
+maybeget(d::Dict{K,V}, ex) where {K,V} = ex isa K ? get(d, ex, ex) : ex
 ssa_sym(i::Int) = Symbol("##SSAValue##$(i)##")
 function ssa_to_sym(expr)
     postwalk(expr) do ex
@@ -72,6 +122,14 @@ function ssa_to_sym(expr)
         end
     end
 end
+function subssasyms!(q, ex, substitutions, i)
+    ex = postwalk(ex) do x
+        y = ssa_to_sym(x)
+        maybeget(substitutions, y)
+    end
+    push!(q.args, :($(ssa_sym(i)) = $ex))
+    nothing
+end
 function flatten_expression(expr)::Expr
     lowered_array = Meta.lower(ProbabilityModels, expr).args
     substitutions = Dict{Symbol,Expr}()
@@ -81,274 +139,90 @@ function flatten_expression(expr)::Expr
     q = quote end
     for i ∈ 1:length(lowered) - 1 # skip return statement
         ex = lowered[i]
-        # @show ex
-        if ex isa Expr && ex.head == :call && ex.args[1] isa GlobalRef && ex.args[1].name == :getproperty # @capture(ex, Base.getproperty(M_, s_))
-            substitutions[ssa_sym(i)] = Expr(:., ex.args[2], ex.args[3])
-        elseif @capture(ex, a_ = b_)
-            # push!(q.args, :($a = $(ssa_to_sym(b))))
-            assignments[ssa_to_sym(b)] = a
-        elseif @capture(ex, a_:b_) && a isa Integer && b isa Integer
-            push!(q.args, :($(ssa_sym(i)) = ProbabilityModels.PaddedMatrices.Static{($a,$b)}()))
-        else # assigns to ssa value
-            ex = postwalk(ex) do x
-                y = ssa_to_sym(x)
-                get(substitutions, y, y)
+        if ex isa Expr
+            if ex.head === :call
+                if first(ex.args) === :(:)
+                    push!(q.args, :($(ssa_sym(i)) = ProbabilityModels.PaddedMatrices.Static{($(ex.args[2]),$(ex.args[3]))}()))
+                elseif ex.args[1] isa GlobalRef && ex.args[1].name == :getproperty
+                    substitutions[ssa_sym(i)] = Expr(:., ex.args[2], ex.args[3])
+                else
+                    subssasyms!(q, ex, substitutions, i)
+                end
+            elseif ex.head === :(=)
+                assignments[ssa_to_sym(ex.args[2])] = ex.args[1]
+            else
+                subssasyms!(q, ex, substitutions, i)
             end
-            push!(q.args, :($(ssa_sym(i)) = $ex))# $(ssa_to_sym(ex))))
+        else
+            subssasyms!(q, ex, substitutions, i)
         end
     end
     q = postwalk(q) do ex
-        get(assignments, ex, ex)
+        maybeget(assignments, ex)
     end
     # println(q)
     q
 end
 
-# """
-# This pass is to be applied to a flattened expression, after expressions such as
-# a += b
-# a -= b
-# a *= b
-# a /= b
-# have been expanded. Later insertions of these symbols, for example in the constraining
-# transformations of the parameters, will be bypassed. This allows for incrementing of
-# the `ProbabilityModels.vectorizable` parameters:
-# Symbol("##θparameter##")
-# Symbol("##∂θparameter##")
-
-# This pass skips assignments involving the following functions:
-# PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED
-# PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED
-
-# This pass returns the expression in a static single assignment (SSA) form.
-# """
-# function rename_assignments(expr, vars = Dict{Symbol,Symbol}())
-#     postwalk(expr) do ex
-#         if @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_INCREMENT_SEED_RESERVED(args__)) || @capture(ex, a_ = ProbabilityModels.PaddedMatrices.RESERVED_DECREMENT_SEED_RESERVED(args__))
-#             return ex
-#         elseif @capture(ex, a_ = b_)
-#             if isa(b, Expr)
-#                 c = postwalk(x -> get(vars, x, x), b)
-#             else
-#                 c = b
-#             end
-#             if isa(a, Symbol) && !MacroTools.isgensym(a)
-#                 if haskey(vars, a)
-#                     lhs = gensym(a)
-#                     vars[a] = lhs
-#                     return :($lhs = $c)
-#                 else
-#                     vars[a] = a
-#                     return :($a = $c)
-#                 end
-#             else
-#                 return :($a = $c)
-#             end
-#         elseif @capture(ex, if cond_; conditionaleval_ end)
-#             conditional = postwalk(x -> get(vars, x, x), cond)
-#             conditionaleval, tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
-#             else_expr = quote end
-#             for (k, (vbase,vfinal)) ∈ tracked_vars.reassigned
-#                 push!(else_expr.args, :($vfinal = $vbase))
-#                 vars[k] = vfinal
-#             end
-#             return quote
-#                 if $conditional
-#                     $conditionaleval
-#                 else
-#                     $else_expr
-#                 end
-#             end
-#         elseif @capture(ex, if cond_; conditionaleval_; else; alternateeval_ end)
-#             conditional = postwalk(x -> get(vars, x, x), cond)
-#             if_conditionaleval, if_tracked_vars = rename_assignments(conditionaleval, TrackedDict(vars))
-#             else_conditionaleval, else_tracked_vars = rename_assignments(alternateeval, TrackedDict(vars))
-#             for (k, (vbase,vfinal)) ∈ if_tracked_vars.reassigned
-#                 if haskey(else_tracked_vars.reassigned, k)
-#                     push!(else_conditionaleval.args, :($vfinal = $(else_tracked_vars.reassigned[k])))
-#                 else
-#                     push!(else_conditionaleval.args, :($vfinal = $vbase))
-#                 end
-#                 vars[k] = vfinal
-#             end
-#             for (k, (vbase,vfinal)) ∈ else_tracked_vars.reassigned
-#                 haskey(if_tracked_vars.reassigned, k) && continue
-#                 push!(if_conditionaleval.args, :($vfinal = $vbase))
-#                 vars[k] = vfinal
-#             end
-#             for k ∈ union(keys(if_tracked_vars.newlyassigned),keys(else_tracked_vars.newlyassigned))
-#                 canonical_name = if_tracked_vars.newlyassigned[k]
-#                 vars[k] = canonical_name
-#                 push!(else_expr.args, :($canonical_name = $(else_tracked_vars.newlyassigned[k])))
-#             end
-#             return quote
-#                 if $conditional
-#                     $if_conditionaleval
-#                 else
-#                     $else_conditionaleval
-#                 end
-#             end
-#         else
-#             return ex
-#         end
-#     end, vars
-# end
-
-
-# """
-# Translates first update statements into assignments.
-
-# This is so that we can generate autodiff code via incrementing nodes, eg
-# node += adjoint * value
-# this saves us from having to initialize them all at 0.
-# While the compiler can easily eliminate clean up those initializations with scalars,
-# it may not be able to do so for arbitrary user types.
-# """
-# function first_updates_to_assignments(expr, variables_input)::Expr
-#     # Note that this function is recursive.
-#     # variables_input must NOT be a Set, otherwise that set will be mutated.
-#     # The idea is to call it with something other than a set.
-#     # That is then used to construct a set.
-#     # When called recursively, it will continue to build up said set.
-#     if isa(variables_input, Set)
-#         variables = variables_input
-#     else
-#         variables = Set(variables_input)
-#     end
-#     ignored_symbols = Set{Symbol}()
-#     for i ∈ eachindex(expr.args)
-#         ex = expr.args[i]
-#         isa(ex, Expr) || continue
-#         if ex.head == :block
-#             expr.args[i] = first_updates_to_assignments(ex, variables)
-#             continue
-#         end
-#         isa(ex.args[1], Symbol) || continue
-#         lhs = ex.args[1]
-#         # @show lhs
-#         new_assignment = lhs ∉ variables
-#         # @show new_assignment
-#         push!(variables, lhs)
-#         if ex.head == :(=)
-#             check = false
-#             for j ∈ 2:length(ex.args)
-#                 if isa(ex.args[j], Expr) && ex.args[j].head == :block
-#                     ex.args[j] = first_updates_to_assignments(ex.args[j], variables)
-#                     continue
-#                 end
-#                 let new_assignment = new_assignment
-#                     postwalk(ex.args[j]) do x
-#                         isa(x, Symbol) && push!(variables, x)
-#                         if new_assignment && x == lhs # Then we need to check that it doesn't appear on the lhs
-#                             check = true
-#                         end
-#                         x
-#                     end
-#                 end
-#             end
-#             # @show lhs, new_assignment, check
-#             if check
-#                 if @capture(ex, a_ = ProbabilityModels.RESERVED_INCREMENT_SEED_RESERVED(b__, a_) )
-#                     expr.args[i] = :($a = ProbabilityModels.RESERVED_MULTIPLY_SEED_RESERVED($(b...)))
-#                 elseif @capture(ex, a_ = ProbabilityModels.RESERVED_DECREMENT_SEED_RESERVED(b__, a_) )
-#                     expr.args[i] = :($a = ProbabilityModels.RESERVED_NMULTIPLY_SEED_RESERVED($(b...)))
-#                 elseif @capture(ex, a_ = a_ + b__ ) || @capture(ex, a_ = b__ + a_ ) || @capture(ex, a_ = Base.FastMath.add_fast(a_, b__)) || @capture(ex, a_ = Base.FastMath.add_fast(b__, a_))# || @capture(ex, a_ = b__ )
-#                     expr.args[i] = :($a = $(b...))
-#                 elseif @capture(ex, a_ = a_ - b__ )
-#                     expr.args[i] = :($a = -1 * $(b...))
-#                 elseif @capture(ex, a_ = ProbabilityModels.vifelse(b_, ProbabilityModels.vadd(a_, c_), a_))
-#                     expr.args[i] = :($a = ProbabilityModels.vifelse($b, $c, 0.0))
-# #                elseif @capture(ex, target = ProbabilityModels.DistributionParameters.add(a_, b_) )
-# #                    expr.args[i] = :( a_ = a_ )
-#                 else
-#                     println(expr)
-#                     println(ex)
-#                     throw("""
-#                         This was the first assignment for $lhs in:
-#                             $(ex)
-#                         If this was meant to initialize $lhs, could not determine how to do so.
-#                         """)
-#                 end
-#             end
-#         elseif ex.head == :(+=)# || ex.head == :(*=)
-#             if new_assignment
-#                 ex.head = :(=)
-#             end
-#             for j ∈ 2:length(ex.args)
-#                 postwalk(ex.args[j]) do x
-#                     isa(x, Symbol) && push!(variables, x)
-#                     x
-#                 end
-#             end
-#         elseif ex.head == :(-=)# || ex.head == :(*=)
-#             if new_assignment
-#                 ex.head = :(=)
-#                 expr.args[i] = :($lhs = -1 * $(expr.args[2:end]...) )
-#             end
-#             for j ∈ 2:length(ex.args)
-#                 postwalk(ex.args[j]) do x
-#                     isa(x, Symbol) && push!(variables, x)
-#                     x
-#                 end
-#             end
-#         else # we walk and simply add symbols, assuming everything referenced must already be defined?
-#             postwalk(ex) do x
-#                 isa(x, Symbol) && push!(variables, x)
-#                 x
-#             end
-#         end
-#     end
-#     expr
-# end
+function drop_const_assignment!(first_pass, tracked_vars, ex, LHS, RHS, verbose)
+    if RHS isa Expr && RHS.head === :call
+        f = first(RHS.args)
+        A = @view(RHS.args[2:end])
+        if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
+            track_tup = Expr(:tuple,)
+            for a ∈ A
+                if a ∈ tracked_vars
+                    push!(track_tup.args, true)
+                    push!(tracked_vars, LHS)
+                else
+                    push!(track_tup.args, false)
+                end
+            end
+            if verbose
+                printstring = "distribution $f (ret: $LHS): "
+                push!(first_pass, :(println($printstring)))
+            end
+            push!(first_pass, :($LHS = ProbabilityModels.ProbabilityDistributions.$f(Val{$track_tup}(), $(A...))))
+            verbose && push!(first_pass, :(println($LHS)))
+        else
+            for a ∈ A
+                if a ∈ tracked_vars
+                    push!(tracked_vars, LHS)
+                    break
+                end
+            end
+            if f === :add
+                push!(first_pass, :( $LHS = ProbabilityModels.vadd($(A...))))
+            else
+                push!(first_pass, ex)
+            end
+        end
+    else
+        A = RHS.args
+        for a ∈ A
+            if a ∈ tracked_vars
+                push!(tracked_vars, out)
+                break
+            end
+        end
+        push!(first_pass, ex)
+    end    
+end
 
 """
 This pass is for when we aren't taking partial derivatives.
 """
 function constant_drop_pass!(first_pass::Vector{Any}, expr, tracked_vars, verbose = false)
     for x ∈ expr.args
-        if @capture(x, for i_ ∈ iter_ body_ end)
-            throw("Loops not yet supported!")
-            # reverse_diff_loop_pass!(first_pass, second_pass, i, iter, body, expr, tracked_vars)
-        elseif @capture(x, out_ = f_(A__))
-            if f ∈ ProbabilityDistributions.DISTRIBUTION_DIFF_RULES
-                track_tup = Expr(:tuple,)
-                for a ∈ A
-                    if a ∈ tracked_vars
-                        push!(track_tup.args, true)
-                        push!(tracked_vars, out)
-                    else
-                        push!(track_tup.args, false)
-                    end
-                end
-                if verbose
-                    printstring = "distribution $f (ret: $out): "
-                    push!(first_pass, :(println($printstring)))
-                end
-                push!(first_pass, :($out = ProbabilityModels.ProbabilityDistributions.$f(Val{$track_tup}(), $(A...))))
-                verbose && push!(first_pass, :(println($out)))
-            else
-                for a ∈ A
-                    if a ∈ tracked_vars
-                        push!(tracked_vars, out)
-                        break
-                    end
-                end
-                if f == :add
-                    push!(first_pass, :( $out = ProbabilityModels.vadd($(A...))))
-                else
-                    push!(first_pass, x)
-                end
-            end
-        elseif @capture(x, out_ = A__)
-            for a ∈ A
-                if a ∈ tracked_vars
-                    push!(tracked_vars, out)
-                    break
-                end
-            end
-            push!(first_pass, x)            
-        else
+        if !(x isa Expr)
             push!(first_pass, x)
+            continue
+        end
+        ex::Expr = x
+        if ex.head === :(=)
+            drop_const_assignment!(first_pass, tracked_vars, ex, ex.args[1], ex.args[2], verbose)
+        else
+            push!(first_pass, ex)
         end
     end
     nothing

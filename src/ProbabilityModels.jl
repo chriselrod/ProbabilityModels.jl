@@ -7,7 +7,7 @@ using MacroTools, LinearAlgebra, VectorizationBase,
     DistributionParameters, ProbabilityDistributions,
     ReverseDiffExpressions, StackPointers
 
-using MacroTools: postwalk, prewalk, @capture, @q
+using MacroTools: postwalk, prewalk#, @capture, @q
 
 using ReverseDiffExpressionsBase:
     RESERVED_INCREMENT_SEED_RESERVED!,
