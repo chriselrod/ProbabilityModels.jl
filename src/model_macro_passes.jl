@@ -489,11 +489,11 @@ function generate_generated_funcs_expressions(model_name, expr)
                 expr_out = quote
                     target = ProbabilityModels.initialize_target($(Symbol("##element_type##")))
                     # $(Symbol("##stack_pointer##")) = $(Symbol("##initial_stack_pointer##"))
-                    $(Symbol("##stack_pointer##")) = ProbabilityModels.StackPointer(ProbabilityModels.SIMDPirates.noalias!(pointer($(Symbol("##initial_stack_pointer##")), $(Symbol("##element_type##")))))
+                    $(Symbol("##stack_pointer##")) = ProbabilityModels.StackPointer(pointer($(Symbol("##initial_stack_pointer##")), $(Symbol("##element_type##"))))
                     $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##θ_parameter_vector##")))
                     # $(Symbol("##θparameter##")) = ProbabilityModels.vectorizable(ProbabilityModels.SIMDPirates.noalias!(pointer($(Symbol("##θ_parameter_vector##")))))
                     # $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable($(Symbol("##∂θ_parameter_vector##")))
-                    $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable(ProbabilityModels.SIMDPirates.noalias!(pointer($(Symbol("##∂θ_parameter_vector##")))))
+                    $(Symbol("##∂θparameter##")) = ProbabilityModels.vectorizable(pointer($(Symbol("##∂θ_parameter_vector##"))))
                 end
                 append!(expr_out.args, first_pass)
                 append!(expr_out.args, second_pass)
