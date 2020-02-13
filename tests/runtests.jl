@@ -1,4 +1,15 @@
 
+@model SubGroup begin
+    σ ~ Gamma(1.0, 0.05)
+    L ~ LKJ(2.0)
+    β ~ Normal(10.0) # μ = 0
+    μ ~ Normal(100.0)
+
+    σL = Diagonal(σ) * L
+    Y₁ ~ Normal( μ' + X₁ * β,        σL )
+    Y₂ ~ Normal( μ' + X₂ * β[1:7,:], σL )
+end
+
 
 using PaddedMatrices, StructuredMatrices, DistributionParameters, LoopVectorization
 using InplaceDHMC, VectorizedRNG

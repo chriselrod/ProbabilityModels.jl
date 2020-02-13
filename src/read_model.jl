@@ -29,6 +29,8 @@ function read_operation!(m::Model, ex::Expr)
         read_broadcast!(m, ex)
     elseif ex.head === :call
         read_call!(m, ex)
+    elseif ex.head === :ref
+        read_ref!(m, ex)
     end
 end
 
@@ -44,6 +46,8 @@ function read_call!(m::Model, ex::Expr)
     f = Instruction(first(ex.args))::Instruction
     if f.instr ∈ broadcasts
         return read_broadcast!(m, ex)
+    elseif f.instr === :~
+        return read_sampling_statement!(m, ex)
     end
     
 end
