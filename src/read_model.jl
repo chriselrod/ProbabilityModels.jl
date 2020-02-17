@@ -1,4 +1,4 @@
-using ReverseDiffExpressions: Model, Variable, Func
+using ReverseDiffExpressions: Model, Variable, Func, getvar!, returns!, uses!, onevar, targetvar, addfunc!
 using LoopVectorization: Instruction
 
 function read_model(q::Expr, mod::Module)
@@ -16,11 +16,11 @@ function read_model!(m::Model, q::Expr)
             read_model!(m, ex)
         else
             read_line!(m, ex)
-        end
-        else
-            throw("Don't know how to handle block $ex")
+        # else
+            # throw("Don't know how to handle block $ex")
         end
     end
+    m
 end
 
 function read_line!(m::Model, ex::Expr)
@@ -46,23 +46,34 @@ function read_argument!(m::Model, ex::Expr)::Variable
         read_broadcast_tempalloc!(m, ex, gensym(:LHS))
     elseif ex.head === :ref
         read_ref!(m, ex, gensym(:LHS))
+    elseif ex.head === Symbol("'")
+        read_call!(m, Instruction(:adjoint), ex.args, gensym(:LHS))
+    else
+        println(ex)
+        @show ex.head === Symbol("'")
+        @show ex.head, Symbol("'")
+        throw("Expression not found.")
     end
 end
-ReverseDiffExpressions.uses!(func::Func, m::Model, x::Expr) = uses!(func, read_argument!(m, x))
-ReverseDiffExpressions.uses!(func::Func, m::Model, x::Symbol) = uses!(func, getvar!(m, x))
+function read_argument!(m::Model, x)::Variable
+    xv = getvar!(m, gensym())
+    xv.ref[] = x
+    xv
+end
+ReverseDiffExpressions.uses!(func::Func, m::Model, x) = uses!(func, read_argument!(m, x))
 
 function read_ref!(m::Model, ex::Expr, LHS)
-    retv = getvar!(m, s)
-    func = addfunc!(m, :view, false, false)
+    retv = getvar!(m, LHS)
+    func = Func(Instruction(:Base,:view), false, false)
     returns!(func, retv)
     foreach(arg -> uses!(func, m, arg), ex.args)
-    
+    addfunc!(m, func)
 end
 
 function read_broadcast!(m::Model, ex::Expr)
-    read_broadcast!(m, first(Meta.lower(m.mod, ex).args)::CodeInfo)
+    read_broadcast!(m, first(Meta.lower(m.mod, ex).args)::Core.CodeInfo)
 end
-function read_broadcast!(m::Model, ci::CodeInfo)
+function read_broadcast!(m::Model, ci::Core.CodeInfo)
     
 end
 instr_from_expr(ex::Expr) = Instruction(first(ex.args)::Union{Symbol,Expr})::Instruction
@@ -74,7 +85,7 @@ end
 function read_sampling_statement!(m::Model, f::Instruction, ex::Expr)
     arg1 = (ex.args[2])::Symbol
     call = (ex.args[3])::Expr
-    @asert call.head === :call
+    @assert call.head === :call
     v = getvar!(m, arg1)
     f = instr_from_expr(call)
     scale = if f == Instruction(:^) # Then it is weighted
@@ -84,13 +95,15 @@ function read_sampling_statement!(m::Model, f::Instruction, ex::Expr)
     else
         onevar(m)
     end
-    func = addfunc!(m, f, false, true)
-    returns!(func, targetvar(m))
-    uses!(f, v)
+    func = Func(f, false, true)
+    target = targetvar(m)
+    returns!(func, target)
+    uses!(func, v)
     for i ∈ 2:length(call.args)
-        uses!(f, m, call.args[i])
+        uses!(func, m, call.args[i])
     end
-    uses!(f, scale)
+    uses!(func, scale)
+    addfunc!(m, func)
 end
 
 # Reads a call without a return
@@ -99,21 +112,60 @@ function read_call!(m::Model, ex::Expr, ::Nothing = nothing)
     if f.instr === :~
         return read_sampling_statement!(m, f, ex)
     end
-
+    
     
 end
 # Reads a call with a return
 function read_call!(m::Model, ex::Expr, LHS::Symbol)
     broadcasts = (:(.+), :(.*), :(.-), :(./), :(.*ˡ), :(.÷))
     f = instr_from_expr(ex)
+    # @show ex
     if f.instr ∈ broadcasts
-        return read_broadcast!(m, ex)
+        return read_broadcast!(m, ex, LHS)
     # elseif f.instr === :~
         # return read_sampling_statement!(m, ex)
-    elseif f.inst === :(:)
-        return read_range_expr!(m, ex)
+    elseif f.instr === :(:)
+        return read_range_expr!(m, ex, LHS)
     end
-    
+    read_call!(m, f, @view(ex.args[2:end]), LHS)
+end
+function read_call!(m::Model, f::Instruction, args, LHS)
+    func = Func(f, false, false)
+    retv = getvar!(m, LHS)
+    returns!(func, retv)
+    foreach(arg -> uses!(func, m, arg), args)
+    addfunc!(m, func)
 end
 
+function read_range_expr!(m::Model, ex::Expr, LHS)
+    if length(ex.args) == 3
+        read_range_args!(m, ex.args[2], ex.args[3], LHS)
+    else
+        @assert length(ex.args) == 4
+        read_range_args!(m, ex.args[2], ex.args[3], ex.args[4], LHS)
+    end
+end
+function read_range_args!(m::Model, l::Number, u::Number, LHS::Symbol)
+    retv = getvar!(m, LHS)
+    retv.ref[] = Expr(:call, Expr(:curly, :StaticUnitRange, l, u))
+    retv
+end
+function read_range_args!(m::Model, l, u, LHS::Symbol)
+    lin = l isa Number; uin = u isa Number
+    f = if lin
+        :StaticUpperUnitRange
+    elseif uin
+        :StaticLowerUnitRange
+    else
+        :(:)
+    end
+    func = Func(Instruction(f), false, false)
+    retv = getvar!(m, LHS)
+    returns!(func, retv)
+    uses!(func, m, l)
+    uses!(func, m, u)
+    addfunc!(m, func)
+end
+# function read_range_args!(m::Model, l, s, u, LHS::Symbol)
+# end
 
