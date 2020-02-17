@@ -6,8 +6,8 @@
     μ ~ Normal(100.0)
 
     σL = Diagonal(σ) * L
-    Y₁ ~ Normal( μ' + X₁ * β,        σL )
-    Y₂ ~ Normal( μ' + X₂ * β[1:7,:], σL )
+    Y₁ ~ Normal( μ' .+ X₁ .*ˡ β,        σL )
+    Y₂ ~ Normal( μ' .+ X₂ .*ˡ β[1:7,:], σL )
 end
 
 
