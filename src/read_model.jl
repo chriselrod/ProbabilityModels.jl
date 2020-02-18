@@ -1,17 +1,14 @@
 using ReverseDiffExpressions: Model, Variable, Func, getvar!, returns!, uses!, onevar, targetvar, addfunc!
 using LoopVectorization: Instruction
 
-function read_model(q::Expr, mod::Module)
-    m = Model(mod)
-    read_model!(m, q)
-end
+read_model(q::Expr, mod::Module) = read_model!(Model(mod), q)
 
 function read_model!(m::Model, q::Expr)
     for arg ∈ q.args
         arg isa Expr || continue
         ex = arg::Expr
         if ex.head === :for
-            ls = LoopSet(ex, Symbol(m.mod))
+            add_loopset!(m, q)
         elseif ex.head === :block
             read_model!(m, ex)
         else
@@ -21,6 +18,11 @@ function read_model!(m::Model, q::Expr)
         end
     end
     m
+end
+
+function add_loopset!(m::Model, ex)
+    throw("Not yet implemented")
+    ls = LoopSet(stage1distsub!(ex), Symbol(m.mod))
 end
 
 function read_line!(m::Model, ex::Expr)
@@ -58,6 +60,7 @@ end
 function read_argument!(m::Model, x)::Variable
     xv = getvar!(m, gensym())
     xv.ref[] = x
+    xv.initialized = true
     xv
 end
 ReverseDiffExpressions.uses!(func::Func, m::Model, x) = uses!(func, read_argument!(m, x))
@@ -148,6 +151,7 @@ end
 function read_range_args!(m::Model, l::Number, u::Number, LHS::Symbol)
     retv = getvar!(m, LHS)
     retv.ref[] = Expr(:call, Expr(:curly, :StaticUnitRange, l, u))
+    retv.initialized = true
     retv
 end
 function read_range_args!(m::Model, l, u, LHS::Symbol)
