@@ -17,6 +17,13 @@ function read_model!(m::Model, q::Expr)
             # throw("Don't know how to handle block $ex")
         end
     end
+    for (varid,v) ∈ enumerate(vars)
+        @assert varid == v.varid
+        if v.initialized && !isref(v)
+            # If it must already be initialized, yet it isn't a ref to a constant
+            push!(m.inputvars, varid)
+        end
+    end
     m
 end
 
@@ -60,7 +67,7 @@ end
 function read_argument!(m::Model, x)::Variable
     xv = getvar!(m, gensym())
     xv.ref[] = x
-    xv.initialized = true
+    # xv.initialized = true
     xv
 end
 ReverseDiffExpressions.uses!(func::Func, m::Model, x) = uses!(func, read_argument!(m, x))
@@ -151,7 +158,7 @@ end
 function read_range_args!(m::Model, l::Number, u::Number, LHS::Symbol)
     retv = getvar!(m, LHS)
     retv.ref[] = Expr(:call, Expr(:curly, :StaticUnitRange, l, u))
-    retv.initialized = true
+    # retv.initialized = true
     retv
 end
 function read_range_args!(m::Model, l, u, LHS::Symbol)
