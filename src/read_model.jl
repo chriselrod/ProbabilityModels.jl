@@ -1,4 +1,4 @@
-using ReverseDiffExpressions: Model, Variable, Func, getvar!, returns!, uses!, onevar, targetvar, addfunc!
+using ReverseDiffExpressions: Model, Variable, Func, getvar!, returns!, uses!, onevar, targetvar, addfunc!, isref
 using LoopVectorization: Instruction
 
 read_model(q::Expr, mod::Module) = read_model!(Model(mod), q)
@@ -17,11 +17,13 @@ function read_model!(m::Model, q::Expr)
             # throw("Don't know how to handle block $ex")
         end
     end
-    for (varid,v) ∈ enumerate(vars)
-        @assert varid == v.varid
+    for (varid, v) ∈ enumerate(m.vars)
+        vid = v.varid
+        @show v
+        @assert varid == vid + 1
         if v.initialized && !isref(v)
             # If it must already be initialized, yet it isn't a ref to a constant
-            push!(m.inputvars, varid)
+            push!(m.inputvars, vid)
         end
     end
     m
@@ -37,7 +39,7 @@ function read_line!(m::Model, ex::Expr)
         LHS = first(ex.args)::Union{Symbol,Expr}
         # If LHS isa Expr, we assume it is a tuple being unpacked
         RHS = ex.args[2]
-        read_call!(m, RHS)
+        read_call!(m, RHS, LHS)
     elseif ex.head === :(.=)
         read_broadcast!(m, ex)
     elseif ex.head === :call
@@ -66,7 +68,7 @@ function read_argument!(m::Model, ex::Expr)::Variable
 end
 function read_argument!(m::Model, x)::Variable
     xv = getvar!(m, gensym())
-    xv.ref[] = x
+    xv.ref = x
     # xv.initialized = true
     xv
 end
@@ -121,9 +123,10 @@ function read_call!(m::Model, ex::Expr, ::Nothing = nothing)
     f = instr_from_expr(ex)
     if f.instr === :~
         return read_sampling_statement!(m, f, ex)
+    else
+        @show ex
+        throw("Currently only `~` and `=` type calls are supported.")    
     end
-    
-    
 end
 # Reads a call with a return
 function read_call!(m::Model, ex::Expr, LHS::Symbol)
@@ -157,7 +160,7 @@ function read_range_expr!(m::Model, ex::Expr, LHS)
 end
 function read_range_args!(m::Model, l::Number, u::Number, LHS::Symbol)
     retv = getvar!(m, LHS)
-    retv.ref[] = Expr(:call, Expr(:curly, :StaticUnitRange, l, u))
+    retv.ref = Expr(:call, Expr(:curly, :StaticUnitRange, l, u))
     # retv.initialized = true
     retv
 end
