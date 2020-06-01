@@ -5,7 +5,7 @@ using LinearAlgebra, VectorizationBase,
     LoopVectorization, VectorizedRNG,
     PaddedMatrices, #StructuredMatrices,
     # DistributionParameters, ProbabilityDistributions,
-    ReverseDiffExpressions, StackPointers
+    ReverseDiffExpressions, StackPointers, UnPack
 
 # using ReverseDiffExpressionsBase:
 #     RESERVED_INCREMENT_SEED_RESERVED!,

@@ -13,8 +13,8 @@ sg = quote
     # Y₂ ~ Normal( μ' .+ X₂ .*ˡ β[1:7,:], σL )
 end;
 m = ProbabilityModels.read_model(sg, Main);
-
-
+ProbabilityModels.ReverseDiffExpressions.lower(m)
+dm = ProbabilityModels.ReverseDiffExpressions.differentiate(m)
 
 @model SubGroup begin
     σ ~ Gamma(1.0, 0.05)

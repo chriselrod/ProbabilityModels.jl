@@ -17,6 +17,7 @@ function read_model!(m::Model, q::Expr)
             # throw("Don't know how to handle block $ex")
         end
     end
+    m.vars[0].initialized = true
     for (varid, v) ∈ enumerate(m.vars)
         vid = v.varid
         @show v
@@ -173,7 +174,7 @@ function read_range_args!(m::Model, l, u, LHS::Symbol)
     else
         :(:)
     end
-    func = Func(Instruction(f), false, false)
+    func = Func(Instruction(f), false)
     retv = getvar!(m, LHS)
     returns!(func, retv)
     uses!(func, m, l)
