@@ -77,7 +77,7 @@ ReverseDiffExpressions.uses!(func::Func, m::Model, x) = uses!(func, read_argumen
 
 function read_ref!(m::Model, ex::Expr, LHS)
     retv = getvar!(m, LHS)
-    func = Func(Instruction(:Base,:view), false, false)
+    func = Func(Instruction(:Base,:view), false)
     returns!(func, retv)
     foreach(arg -> uses!(func, m, arg), ex.args)
     addfunc!(m, func)
@@ -108,7 +108,7 @@ function read_sampling_statement!(m::Model, f::Instruction, ex::Expr)
     else
         onevar(m)
     end
-    func = Func(f, false, true)
+    func = Func(f, true)
     target = targetvar(m)
     returns!(func, target)
     uses!(func, v)
@@ -144,7 +144,7 @@ function read_call!(m::Model, ex::Expr, LHS::Symbol)
     read_call!(m, f, @view(ex.args[2:end]), LHS)
 end
 function read_call!(m::Model, f::Instruction, args, LHS)
-    func = Func(f, false, false)
+    func = Func(f, false)
     retv = getvar!(m, LHS)
     returns!(func, retv)
     foreach(arg -> uses!(func, m, arg), args)

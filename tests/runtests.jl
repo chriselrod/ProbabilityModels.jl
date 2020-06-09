@@ -1,5 +1,5 @@
 
-using ProbabilityModels
+using ProbabilityModels, LinearAlgebra, DistributionParameters
 sg = quote
     σ ~ Gamma(1.0, 0.05)
     L ~ LKJ(2.0)
@@ -13,8 +13,28 @@ sg = quote
     # Y₂ ~ Normal( μ' .+ X₂ .*ˡ β[1:7,:], σL )
 end;
 m = ProbabilityModels.read_model(sg, Main);
+
+N, K₁, K₂, P = 100, 10, 7, 12;
+μ = rand(P);
+σU = rand(P, (3P)>>1) |> x -> cholesky(Hermitian(x * x')).U;
+X₁ = rand(N, K₁);
+X₂ = rand(N, K₂);
+β = randn(K₁, P);
+Y₁ = mul!(rand(N, P) * σU, X₁, β, 1.0, 1.0);
+Y₂ = mul!(rand(N, P) * σU, X₂, view(β, 1:K₂, :), 1.0, 1.0);
+
+datant = (
+    Y₁ = Y₁, Y₂ = Y₂, X₁ = X₁, X₂ = X₂,
+    μ = RealVector{12}(), β = RealMatrix{10,12}(),
+    σ = RealVector{12,0.0,Inf}(), L = CorrelationMatrixCholesyFactor{12}()
+);
+
+ProbabilityModels.preprocess!(m, typeof(datant));
+
 ProbabilityModels.ReverseDiffExpressions.lower(m)
-dm = ProbabilityModels.ReverseDiffExpressions.differentiate(m)
+
+dm = ProbabilityModels.ReverseDiffExpressions.differentiate(m);
+ProbabilityModels.ReverseDiffExpressions.lower(dm)
 
 
 

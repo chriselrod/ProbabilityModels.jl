@@ -4,9 +4,11 @@ using LinearAlgebra, VectorizationBase,
     SIMDPirates, SLEEFPirates,
     LoopVectorization, VectorizedRNG,
     PaddedMatrices, #StructuredMatrices,
-    # DistributionParameters, ProbabilityDistributions,
+    DistributionParameters,# ProbabilityDistributions,
     ReverseDiffExpressions, StackPointers, UnPack
 
+using DistributionParameters: LengthParamDescription
+using ReverseDiffExpressions: addvar!, getconstindex!
 # using ReverseDiffExpressionsBase:
 #     RESERVED_INCREMENT_SEED_RESERVED!,
 #     initialize_target, uninitialized,
@@ -49,6 +51,7 @@ verbose_models() > 1 will print output while evaluating the logdensity (and grad
 verbose_models() = 0
 
 include("read_model.jl")
+include("preprocess_models.jl")
 # include("logdensity.jl")
 # include("model_macro_passes.jl")
 # include("mcmc_chains.jl")
