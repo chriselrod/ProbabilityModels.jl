@@ -17,12 +17,11 @@ function read_model!(m::Model, q::Expr)
             # throw("Don't know how to handle block $ex")
         end
     end
-    m.vars[0].initialized = true
     for (varid, v) ∈ enumerate(m.vars)
         vid = v.varid
         @show v
         @assert varid == vid + 1
-        if v.initialized && !isref(v)
+        if ReverseDiffExpressions.isinitialized(v) && !isref(v)
             # If it must already be initialized, yet it isn't a ref to a constant
             push!(m.inputvars, vid)
         end
