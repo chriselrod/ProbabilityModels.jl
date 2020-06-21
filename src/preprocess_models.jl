@@ -33,6 +33,7 @@ function deconstruct_namedtuple(::Type{NamedTuple{N,T}}) where {N,T}
     names, track, lengthdescripts, descripts
 end
 
+preprocess(m::Model, descriptnt) = preprocess!(copy(m), descriptnt)
 function preprocess!(m::Model, descriptnt)
     names, track, lengthdescripts, descripts = deconstruct_namedtuple(descriptnt)
     preprocess!(m, names, track, lengthdescripts, descripts)
@@ -73,6 +74,7 @@ function preprocess!(m::Model, names::Vector{Symbol}, track::Vector{Bool}, lengt
     end
     parametervar.tracked = true
     ReverseDiffExpressions.propagate_var_tracked!(m)
+    m
 end
 
 

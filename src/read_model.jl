@@ -19,12 +19,12 @@ function read_model!(m::Model, q::Expr)
     end
     for (varid, v) ∈ enumerate(m.vars)
         vid = v.varid
-        @show v
+        # @show v
         @assert varid == vid + 1
-        if ReverseDiffExpressions.isinitialized(v) && !isref(v)
-            # If it must already be initialized, yet it isn't a ref to a constant
-            push!(m.inputvars, vid)
-        end
+        # if ReverseDiffExpressions.isinitialized(v) && !isref(v)
+        #     # If it must already be initialized, yet it isn't a ref to a constant
+        #     push!(m.inputvars, vid)
+        # end
     end
     m
 end

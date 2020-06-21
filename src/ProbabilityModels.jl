@@ -9,6 +9,9 @@ using LinearAlgebra, VectorizationBase,
 
 using DistributionParameters: LengthParamDescription
 using ReverseDiffExpressions: addvar!, getconstindex!
+
+export @model
+
 # using ReverseDiffExpressionsBase:
 #     RESERVED_INCREMENT_SEED_RESERVED!,
 #     initialize_target, uninitialized,
@@ -52,6 +55,7 @@ verbose_models() = 0
 
 include("read_model.jl")
 include("preprocess_models.jl")
+include("model_macro.jl")
 # include("logdensity.jl")
 # include("model_macro_passes.jl")
 # include("mcmc_chains.jl")
@@ -60,8 +64,8 @@ include("preprocess_models.jl")
 # Would be better to actually work on compile times.
 # @static if VERSION > v"1.3.0-rc1"
 # end
-include("precompile.jl")
-_precompile_()
+# include("precompile.jl")
+# _precompile_()
 
 
 end # module

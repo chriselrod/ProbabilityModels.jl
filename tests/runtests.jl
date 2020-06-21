@@ -37,6 +37,33 @@ dm = ProbabilityModels.ReverseDiffExpressions.differentiate(m);
 ProbabilityModels.ReverseDiffExpressions.lower(dm)
 
 
+@model SubGroups begin
+    σ ~ Gamma(1.0, 0.05)
+    L ~ LKJ(2.0)
+    β ~ Normal(10.0) # μ = 0
+    μ ~ Normal(100.0)
+
+    σL = Diagonal(σ) * L
+    Y₁ ~ Normal( X₁, β,       μ',  σL )
+    Y₂ ~ Normal( X₂, β[1:7,:], μ', σL )
+end
+
+@model LogisticRegression begin
+    β ~ Normal(10.0) # μ = 0
+    y ~ BernoulliLogit( X * β )
+end
+
+@model SubGroups begin
+    σ ~ Gamma(1.0, 0.05)
+    L ~ LKJ(2.0)
+    β ~ Normal(10.0) # μ = 0
+    μ ~ Normal(100.0)
+
+    σL = Diagonal(σ) * L
+    Y₁ ~ Normal( X₁, β,       μ',  σL )
+    Y₂ ~ Normal( X₂, β[1:7,:], μ', σL )
+end
+
 
 @model SubGroup begin
     σ ~ Gamma(1.0, 0.05)
