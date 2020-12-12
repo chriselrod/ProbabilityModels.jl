@@ -1,4 +1,7 @@
+# ProbabilityModels
 
+[![CI](https://github.com/chriselrod/ProbabilityModels.jl/workflows/CI/badge.svg)](https://github.com/chriselrod/ProbabilityModels.jl/actions?query=workflow%3ACI)
+[![CI (Julia nightly)](https://github.com/chriselrod/ProbabilityModels.jl/workflows/CI%20(Julia%20nightly)/badge.svg)](https://github.com/chriselrod/ProbabilityModels.jl/actions?query=workflow%3A%22CI+%28Julia+nightly%29%22)
 
 This is alpha-quality software. It is under active development. Optimistically, I hope to have it and its dependencies reasonably well documented and tested, and all the libraries registered, by the end of the year. There is a roadmap issue [here](https://github.com/chriselrod/ProbabilityModels.jl/issues/5).
 
